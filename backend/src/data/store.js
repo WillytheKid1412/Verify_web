@@ -3,7 +3,9 @@ import path from "path";
 
 // Thư mục lưu dữ liệu có thể ghi đè bằng env DATA_DIR (dùng cho Docker volume).
 // KHÔNG dùng chung thư mục với code nguồn (src/data) để tránh volume đè mất code.
-const DATA_DIR = process.env.DATA_DIR || "/app/data";
+// Trong Docker, DATA_DIR được cấu hình là /app/data. Khi chạy local, lưu cạnh backend
+// để không cố ghi vào đường dẫn tuyệt đối /app/data của hệ điều hành.
+const DATA_DIR = process.env.DATA_DIR || path.resolve(process.cwd(), "data");
 const DB_FILE = path.join(DATA_DIR, "verifications.json");
 
 if (!fs.existsSync(DATA_DIR)) {

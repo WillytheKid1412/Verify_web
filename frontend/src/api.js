@@ -21,3 +21,19 @@ export async function submitVerification(id, { status, note }) {
   if (!res.ok) throw new Error("Không lưu được kết quả xác minh");
   return res.json();
 }
+
+export async function fetchComparison() {
+  const res = await fetch(`${API_URL}/comparison`);
+  if (!res.ok) throw new Error("Không tải được phiên đối chiếu");
+  return res.json();
+}
+
+export async function submitComparisonVerification(id, { status, note }) {
+  const res = await fetch(`${API_URL}/comparison/${id}/verify`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ status, note }),
+  });
+  if (!res.ok) throw new Error("Không lưu được kết quả xác minh");
+  return res.json();
+}

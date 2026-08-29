@@ -8,8 +8,11 @@ services:
     environment:
       - PORT=4000
       - DATA_DIR=/app/data
+      - DEMO_SAMPLE=true
+      - SAMPLE_DATA_DIR=/app/sample_data
     volumes:
       - backend_data:/app/data
+      - ./sample_data:/app/sample_data:ro
     restart: unless-stopped
 
   frontend:

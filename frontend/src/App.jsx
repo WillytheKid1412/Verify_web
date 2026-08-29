@@ -1,310 +1,54 @@
-import React, { useState, useEffect, useMemo } from "react";
-import {
-  Search, ChevronRight, FileText, ScanLine, FlaskConical,
-  CheckCircle2, XCircle, FlagTriangleRight, AlertTriangle,
-  CircleDot, ShieldCheck,
-} from "lucide-react";
-
+import React, { useEffect, useMemo, useState } from "react";
+import { CheckCircle2, ChevronRight, FileText, FlaskConical, FlagTriangleRight, Image, ScanLine, Search, ShieldCheck, XCircle } from "lucide-react";
 import { C, FONTS } from "./theme.js";
-import { StatusBadge, UrgencyDot, InfoCard, ActionButton, thStyle, tdStyle } from "./components/ui.jsx";
+import { ActionButton, StatusBadge, thStyle, tdStyle } from "./components/ui.jsx";
 import ScanViewport from "./components/ScanViewport.jsx";
-import { fetchPatientList, fetchPatientDetail, submitVerification } from "./api.js";
+import { fetchComparison, submitComparisonVerification } from "./api.js";
+
+const tabs = [["ehr", "EHR", FileText], ["labs", "Lab result", FlaskConical], ["XQ", "XQ", Image], ["CT", "CT", ScanLine], ["MRI", "MRI", ScanLine]];
 
 export default function App() {
-  const [list, setList] = useState([]);
-  const [selectedId, setSelectedId] = useState(null);
-  const [patient, setPatient] = useState(null);
-  const [tab, setTab] = useState("ehr");
-  const [query, setQuery] = useState("");
-  const [note, setNote] = useState("");
-  const [loadingList, setLoadingList] = useState(true);
-  const [loadingDetail, setLoadingDetail] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState(null);
-
-  // tải danh sách bệnh nhân khi mở app
-  useEffect(() => {
-    fetchPatientList()
-      .then((data) => {
-        setList(data);
-        if (data.length) setSelectedId(data[0].id);
-      })
-      .catch((e) => setError(e.message))
-      .finally(() => setLoadingList(false));
-  }, []);
-
-  // tải chi tiết mỗi khi đổi bệnh nhân
-  useEffect(() => {
-    if (!selectedId) return;
-    setLoadingDetail(true);
-    fetchPatientDetail(selectedId)
-      .then((data) => {
-        setPatient(data);
-        setNote(data.verification?.note || "");
-      })
-      .catch((e) => setError(e.message))
-      .finally(() => setLoadingDetail(false));
-  }, [selectedId]);
-
-  const filtered = useMemo(
-    () => list.filter((p) => p.name.toLowerCase().includes(query.toLowerCase()) || p.id.toLowerCase().includes(query.toLowerCase())),
-    [list, query]
-  );
-
-  const reviewedCount = list.filter((p) => p.status && p.status !== "pending").length;
-  const currentStatus = patient?.verification?.status || "pending";
-
-  const decide = async (status) => {
-    if (!selectedId) return;
-    setSaving(true);
-    try {
-      const saved = await submitVerification(selectedId, { status, note });
-      setPatient((prev) => (prev ? { ...prev, verification: saved } : prev));
-      setList((prev) => prev.map((p) => (p.id === selectedId ? { ...p, status: saved.status } : p)));
-    } catch (e) {
-      setError(e.message);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const tabs = [
-    { id: "ehr", label: "Hồ sơ bệnh án", icon: FileText },
-    { id: "imaging", label: "Hình ảnh", icon: ScanLine },
-    { id: "labs", label: "Xét nghiệm", icon: FlaskConical },
-  ];
-
-  if (loadingList) {
-    return <Centered>Đang tải danh sách bệnh nhân…</Centered>;
-  }
-  if (error && !list.length) {
-    return <Centered error>Lỗi: {error}. Kiểm tra backend đã chạy ở cổng 4000 chưa.</Centered>;
-  }
-
-  return (
-    <div style={{
-      fontFamily: "'Inter', sans-serif", background: C.bg, color: C.ink,
-      minHeight: "100vh", display: "flex", overflow: "hidden",
-    }}>
-      <style>{FONTS}</style>
-
-      {/* ---------------- SIDEBAR / QUEUE ---------------- */}
-      <div style={{ width: 300, flexShrink: 0, background: C.navy, color: C.navyText, display: "flex", flexDirection: "column" }}>
-        <div style={{ padding: "18px 18px 14px" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-            <ShieldCheck size={17} color="#8FE0D4" />
-            <span style={{ fontSize: 13, fontWeight: 700, color: "#fff", letterSpacing: 0.2 }}>Hàng chờ xác minh</span>
-          </div>
-          <div style={{ fontSize: 11, color: "#7E93A0", fontFamily: "'IBM Plex Mono', monospace" }}>
-            {reviewedCount} / {list.length} đã xử lý
-          </div>
-          <div style={{ marginTop: 8, display: "flex", gap: 3 }}>
-            {list.map((p) => {
-              const color = p.status === "approved" ? C.teal : p.status === "rejected" ? C.red : p.status === "flagged" ? "#8F6AD9" : "#33475A";
-              return <div key={p.id} style={{ height: 4, flex: 1, borderRadius: 2, background: color }} />;
-            })}
-          </div>
-        </div>
-
-        <div style={{ padding: "0 14px 10px" }}>
-          <div style={{ position: "relative" }}>
-            <Search size={14} color="#7E93A0" style={{ position: "absolute", left: 10, top: 9 }} />
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Tìm theo tên hoặc mã BN"
-              style={{
-                width: "100%", boxSizing: "border-box", background: "#0F1A22", border: "1px solid #2A3D4C",
-                borderRadius: 7, padding: "8px 10px 8px 30px", color: "#E4ECEF", fontSize: 12.5, outline: "none",
-              }}
-            />
-          </div>
-        </div>
-
-        <div style={{ overflowY: "auto", flex: 1, padding: "4px 8px 12px" }}>
-          {filtered.map((p) => {
-            const active = p.id === selectedId;
-            return (
-              <button
-                key={p.id}
-                onClick={() => setSelectedId(p.id)}
-                style={{
-                  width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 8,
-                  background: active ? C.navySoft : "transparent", border: "none", borderRadius: 8,
-                  padding: "9px 10px", marginBottom: 2, cursor: "pointer",
-                  borderLeft: active ? "3px solid #8FE0D4" : "3px solid transparent",
-                }}
-              >
-                <UrgencyDot urgency={p.urgency} />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: "#fff", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                    {p.name}
-                  </div>
-                  <div style={{ fontSize: 10.5, color: "#7E93A0", fontFamily: "'IBM Plex Mono', monospace" }}>
-                    {p.id} · {p.age}{p.gender === "Nữ" ? "F" : "M"}
-                  </div>
-                </div>
-                {p.status !== "pending" && (
-                  <span style={{
-                    width: 6, height: 6, borderRadius: "50%",
-                    background: p.status === "approved" ? C.teal : p.status === "rejected" ? C.red : "#8F6AD9",
-                  }} />
-                )}
-                <ChevronRight size={13} color="#4E6373" />
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* ---------------- DETAIL PANEL ---------------- */}
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", background: C.bg, minWidth: 0 }}>
-        {loadingDetail || !patient ? (
-          <Centered>Đang tải hồ sơ…</Centered>
-        ) : (
-          <>
-            <div style={{ padding: "20px 28px 0", borderBottom: `1px solid ${C.border}`, background: C.surface }}>
-              <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
-                <div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                    <h1 style={{ fontFamily: "'Source Serif 4', serif", fontWeight: 600, fontSize: 24, margin: 0 }}>
-                      {patient.name}
-                    </h1>
-                    <StatusBadge status={currentStatus} />
-                  </div>
-                  <div style={{ fontSize: 12.5, color: C.inkMuted, marginTop: 4, fontFamily: "'IBM Plex Mono', monospace" }}>
-                    {patient.id} · {patient.age} tuổi · {patient.gender} · Nhập viện {patient.admitted}
-                  </div>
-                  <div style={{ fontSize: 13, color: C.ink, marginTop: 8, maxWidth: 520 }}>
-                    <strong style={{ fontWeight: 600 }}>Lý do vào viện: </strong>{patient.complaint}
-                  </div>
-                  {patient.allergies.length > 0 && (
-                    <div style={{ display: "inline-flex", alignItems: "center", gap: 5, marginTop: 8, background: C.redSoft, color: "#8F332B", fontSize: 11.5, fontWeight: 600, padding: "3px 9px", borderRadius: 20 }}>
-                      <AlertTriangle size={12} /> Dị ứng: {patient.allergies.join(", ")}
-                    </div>
-                  )}
-                </div>
-                <div style={{ textAlign: "right", flexShrink: 0 }}>
-                  <div style={{ fontSize: 10.5, color: C.inkFaint, textTransform: "uppercase", letterSpacing: 0.6 }}>Điểm ưu tiên</div>
-                  <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 500, fontSize: 26, color: patient.urgency > 70 ? C.red : patient.urgency > 45 ? "#B5811F" : C.teal }}>
-                    {patient.urgency}
-                  </div>
-                </div>
-              </div>
-
-              <div style={{ display: "flex", gap: 4, marginTop: 18 }}>
-                {tabs.map((t) => {
-                  const Icon = t.icon;
-                  const active = tab === t.id;
-                  return (
-                    <button
-                      key={t.id}
-                      onClick={() => setTab(t.id)}
-                      style={{
-                        display: "flex", alignItems: "center", gap: 6, padding: "9px 14px",
-                        background: "none", border: "none", cursor: "pointer",
-                        fontSize: 13, fontWeight: 600, color: active ? C.ink : C.inkFaint,
-                        borderBottom: active ? `2px solid ${C.teal}` : "2px solid transparent",
-                      }}
-                    >
-                      <Icon size={14} /> {t.label}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div style={{ flex: 1, overflowY: "auto", padding: "22px 28px" }}>
-              {tab === "ehr" && (
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, maxWidth: 780 }}>
-                  <InfoCard title="Chẩn đoán">
-                    <p style={{ margin: 0, fontSize: 14, fontWeight: 500 }}>{patient.dx}</p>
-                  </InfoCard>
-                  <InfoCard title="Tiền sử bệnh">
-                    <p style={{ margin: 0, fontSize: 13.5, color: C.inkMuted }}>{patient.history}</p>
-                  </InfoCard>
-                  <InfoCard title="Đơn thuốc hiện tại">
-                    <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13.5, color: C.inkMuted }}>
-                      {patient.medications.map((m) => <li key={m}>{m}</li>)}
-                    </ul>
-                  </InfoCard>
-                  <InfoCard title="Dị ứng">
-                    <p style={{ margin: 0, fontSize: 13.5, color: C.inkMuted }}>
-                      {patient.allergies.length ? patient.allergies.join(", ") : "Không ghi nhận"}
-                    </p>
-                  </InfoCard>
-                </div>
-              )}
-
-              {tab === "imaging" && (
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 16, maxWidth: 780 }}>
-                  {patient.imaging.map((study) => (
-                    <div key={study.id}>
-                      <ScanViewport study={study} patient={patient} />
-                      <div style={{ marginTop: 8, fontSize: 12.5, color: C.inkMuted }}>{study.note}</div>
-                    </div>
-                  ))}
-                  <div style={{ gridColumn: "1 / -1", fontSize: 11.5, color: C.inkFaint, display: "flex", alignItems: "center", gap: 6, marginTop: 4 }}>
-                    <CircleDot size={11} /> Ảnh minh họa cho bản thử nghiệm — chưa kết nối kho lưu trữ DICOM thật.
-                  </div>
-                </div>
-              )}
-
-              {tab === "labs" && (
-                <div style={{ maxWidth: 560, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, overflow: "hidden" }}>
-                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-                    <thead>
-                      <tr style={{ background: "#FAFBFA", borderBottom: `1px solid ${C.border}` }}>
-                        <th style={thStyle}>Chỉ số</th>
-                        <th style={thStyle}>Kết quả</th>
-                        <th style={thStyle}>Khoảng tham chiếu</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {patient.labs.map((l) => (
-                        <tr key={l.name} style={{ borderBottom: `1px solid ${C.border}` }}>
-                          <td style={tdStyle}>{l.name}</td>
-                          <td style={{ ...tdStyle, fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600, color: l.flagged ? C.red : C.ink }}>
-                            {l.value} {l.unit} {l.flagged && "•"}
-                          </td>
-                          <td style={{ ...tdStyle, color: C.inkFaint, fontFamily: "'IBM Plex Mono', monospace", fontSize: 12 }}>{l.range}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-
-            <div style={{ borderTop: `1px solid ${C.border}`, background: C.surface, padding: "14px 28px", display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-              <input
-                value={note}
-                onChange={(e) => setNote(e.target.value)}
-                placeholder="Ghi chú (tuỳ chọn)…"
-                style={{
-                  flex: 1, minWidth: 200, border: `1px solid ${C.border}`, borderRadius: 7,
-                  padding: "9px 12px", fontSize: 13, outline: "none", fontFamily: "'Inter', sans-serif",
-                }}
-              />
-              <ActionButton label="Từ chối" icon={XCircle} color={C.red} onClick={() => decide("rejected")} active={currentStatus === "rejected"} disabled={saving} />
-              <ActionButton label="Cần xem lại" icon={FlagTriangleRight} color="#7A57C9" onClick={() => decide("flagged")} active={currentStatus === "flagged"} disabled={saving} />
-              <ActionButton label="Xác nhận" icon={CheckCircle2} color={C.teal} onClick={() => decide("approved")} active={currentStatus === "approved"} filled disabled={saving} />
-            </div>
-          </>
-        )}
-      </div>
-    </div>
-  );
+  const [session, setSession] = useState(null), [selectedId, setSelectedId] = useState(null), [tab, setTab] = useState("ehr"), [note, setNote] = useState(""), [query, setQuery] = useState(""), [error, setError] = useState(""), [saving, setSaving] = useState(false);
+  useEffect(() => { fetchComparison().then((data) => { setSession(data); setSelectedId(data.candidates[0]?.patient_id); }).catch((e) => setError(e.message)); }, []);
+  const selected = useMemo(() => session?.candidates.find((item) => item.patient_id === selectedId), [session, selectedId]);
+  const filtered = useMemo(() => (session?.candidates || []).filter((item) => item.patient_id.includes(query)), [session, query]);
+  useEffect(() => setNote(selected?.patient.verification?.note || ""), [selected]);
+  if (error && !session) return <Centered>Lỗi: {error}</Centered>;
+  if (!session) return <Centered>Đang tải phiên đối chiếu…</Centered>;
+  if (!selected && session.candidates.length) return <Centered>Đang tải ca tương tự…</Centered>;
+  if (!selected) return <SingleCase patient={session.query} />;
+  const status = selected.patient.verification?.status || "pending";
+  const reviewed = session.candidates.filter((item) => item.patient.verification?.status && item.patient.verification.status !== "pending").length;
+  async function decide(nextStatus) { setSaving(true); try { const saved = await submitComparisonVerification(selected.patient_id, { status: nextStatus, note }); setSession((old) => ({ ...old, candidates: old.candidates.map((item) => item.patient_id === selected.patient_id ? { ...item, patient: { ...item.patient, verification: saved } } : item) })); } catch (e) { setError(e.message); } finally { setSaving(false); } }
+  return <main style={{ minHeight: "100vh", display: "flex", background: C.bg, color: C.ink, fontFamily: "'Inter', sans-serif" }}>
+    <style>{FONTS}</style>
+    <aside style={{ width: 286, flexShrink: 0, background: C.navy, color: "white", display: "flex", flexDirection: "column" }}>
+      <div style={{ padding: 18 }}><div style={{ display: "flex", gap: 8, alignItems: "center", fontWeight: 700, fontSize: 14 }}><ShieldCheck size={17} color="#8FE0D4" />Đối chiếu bệnh nhân</div><div style={{ color: "#8da0ac", fontSize: 11, marginTop: 7 }}>{reviewed} / {session.candidates.length} kết quả đã xử lý</div></div>
+      <div style={searchBox}><Search size={14} color="#8da0ac" /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Tìm mã bệnh nhân" style={searchInput} /></div>
+      <div style={{ padding: "4px 8px", overflowY: "auto", flex: 1 }}>{filtered.map((item) => <button key={item.patient_id} onClick={() => setSelectedId(item.patient_id)} style={{ display: "flex", alignItems: "center", textAlign: "left", width: "100%", border: 0, borderLeft: selectedId === item.patient_id ? "3px solid #8FE0D4" : "3px solid transparent", borderRadius: 7, marginBottom: 3, padding: "10px 8px", background: selectedId === item.patient_id ? C.navySoft : "transparent", color: "white", cursor: "pointer" }}><span style={{ color: "#8FE0D4", fontFamily: "monospace", fontSize: 12, width: 28 }}>#{item.rank}</span><span style={{ flex: 1 }}><span style={{ display: "block", fontWeight: 600, fontSize: 13 }}>{item.patient_id}</span><span style={{ fontSize: 11, color: "#9aabb5" }}>{(item.similarity_score * 100).toFixed(2)}% tương tự</span></span>{item.patient.verification && item.patient.verification.status !== "pending" && <span style={{ width: 7, height: 7, borderRadius: "50%", background: item.patient.verification.status === "approved" ? C.teal : C.red }} />}<ChevronRight size={14} color="#81939e" /></button>)}</div>
+    </aside>
+    <section style={{ minWidth: 0, flex: 1, display: "flex", flexDirection: "column" }}>
+      <header style={{ padding: "16px 22px 0", background: C.surface, borderBottom: `1px solid ${C.border}` }}><div style={{ display: "flex", gap: 10, alignItems: "center", fontSize: 13, color: C.inkMuted }}>Query <strong style={{ color: C.ink }}>{session.query.id}</strong><ChevronRight size={14} /> Kết quả #{selected.rank} <strong style={{ color: C.ink }}>{selected.patient_id}</strong><span style={{ color: C.teal, fontWeight: 700 }}>{(selected.similarity_score * 100).toFixed(2)}%</span><StatusBadge status={status} /></div><nav style={{ marginTop: 14, display: "flex", gap: 4 }}>{tabs.map(([id, label, Icon]) => <button key={id} onClick={() => setTab(id)} style={{ border: 0, borderBottom: tab === id ? `2px solid ${C.teal}` : "2px solid transparent", padding: "10px 14px", background: "none", cursor: "pointer", color: tab === id ? C.ink : C.inkFaint, fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}><Icon size={15} />{label}</button>)}</nav></header>
+      <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)", gap: 1, flex: 1, overflow: "hidden", background: C.border }}><PatientPanel title="Bệnh nhân query" patient={session.query} tab={tab} /><PatientPanel title={`Bệnh nhân tương tự #${selected.rank} · ${(selected.similarity_score * 100).toFixed(2)}%`} patient={selected.patient} tab={tab} /></div>
+      <footer style={{ padding: "12px 22px", display: "flex", gap: 9, alignItems: "center", background: C.surface, borderTop: `1px solid ${C.border}` }}><input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Ghi chú cho kết quả đối chiếu…" style={{ flex: 1, minWidth: 170, padding: "9px 11px", borderRadius: 7, border: `1px solid ${C.border}` }} /><ActionButton label="Không tương tự" icon={XCircle} color={C.red} onClick={() => decide("rejected")} disabled={saving} active={status === "rejected"} /><ActionButton label="Cần xem lại" icon={FlagTriangleRight} color="#7656bc" onClick={() => decide("flagged")} disabled={saving} active={status === "flagged"} /><ActionButton label="Xác nhận tương tự" icon={CheckCircle2} color={C.teal} onClick={() => decide("approved")} disabled={saving} active={status === "approved"} filled /></footer>
+      {error && <div style={{ color: C.red, padding: "0 22px 10px", background: C.surface, fontSize: 12 }}>{error}</div>}
+    </section>
+  </main>;
 }
 
-function Centered({ children, error }) {
-  return (
-    <div style={{
-      display: "flex", alignItems: "center", justifyContent: "center",
-      width: "100%", minHeight: "100vh", fontFamily: "'Inter', sans-serif",
-      color: error ? "#8F332B" : "#5B6570", fontSize: 14,
-    }}>
-      {children}
-    </div>
-  );
+function PatientPanel({ title, patient, tab }) {
+  const [record, setRecord] = useState(patient.records[0]?.id || ""), [study, setStudy] = useState("");
+  const studies = patient.studies[tab] || [], currentStudy = studies.find((item) => item.id === study) || studies[0];
+  return <article style={{ background: C.bg, minWidth: 0, overflowY: "auto", padding: 18 }}><h2 style={{ fontSize: 14, margin: 0 }}>{title}</h2><div style={{ color: C.inkMuted, fontSize: 12, margin: "4px 0 13px" }}>{patient.id} · {patient.age} tuổi · {patient.gender}</div><label style={labelStyle}>Bệnh án<select value={record} onChange={(e) => setRecord(e.target.value)} style={selectStyle}>{patient.records.map((item) => <option key={item.id} value={item.id}>{item.label} · {item.date}</option>)}</select></label>{tab === "ehr" && <Ehr patient={patient} />}{tab === "labs" && <Labs labs={patient.labs} />}{["XQ", "CT", "MRI"].includes(tab) && <Imaging tab={tab} patient={patient} studies={studies} currentStudy={currentStudy} study={study} setStudy={setStudy} />}</article>;
 }
+
+function Ehr({ patient }) { const e = patient.ehr, fields = e.details || [["Lý do vào viện", e.complaint], ["Chẩn đoán", e.diagnosis], ["Tiền sử", e.history], ["Thuốc hiện tại", e.medications.join(", ")], ["Dị ứng", e.allergies.join(", ") || "Không ghi nhận"]]; return <div style={{ marginTop: 18, display: "grid", gap: 10 }}>{fields.map(([title, value]) => <Card key={title} title={title}>{value || "Không ghi nhận"}</Card>)}</div>; }
+function Labs({ labs }) { return <div style={{ marginTop: 18, overflowX: "auto", border: `1px solid ${C.border}`, borderRadius: 8, background: "white" }}><table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}><thead><tr style={{ borderBottom: `1px solid ${C.border}` }}><th style={thStyle}>Chỉ số</th><th style={thStyle}>Kết quả</th><th style={thStyle}>Tham chiếu</th><th style={thStyle}>Ngày KQ</th><th style={thStyle}>Mẫu</th></tr></thead><tbody>{labs.map((lab, index) => <tr key={`${lab.name}-${lab.date}-${index}`} style={{ borderBottom: `1px solid ${C.border}` }}><td style={tdStyle}>{lab.name}</td><td style={{ ...tdStyle, color: lab.flagged ? C.red : C.ink, fontWeight: 600 }}>{lab.value} {lab.unit}</td><td style={tdStyle}>{lab.range}</td><td style={tdStyle}>{lab.date || "—"}</td><td style={tdStyle} title={lab.diagnosis}>{lab.sample || "—"}</td></tr>)}</tbody></table></div>; }
+function Imaging({ tab, patient, studies, currentStudy, study, setStudy }) { return <div style={{ marginTop: 18 }}><label style={labelStyle}>{tab === "XQ" ? "Study XQ" : `${tab} study / series`}<select value={study} onChange={(e) => setStudy(e.target.value)} style={selectStyle}>{studies.map((item) => <option key={item.id} value={item.id}>{item.label} · {item.date}</option>)}</select></label>{currentStudy && <><div style={{ fontSize: 12, color: C.inkMuted, margin: "14px 0 8px" }}>{tab === "XQ" ? "Hai ảnh XQ của study đã chọn" : `Series: ${currentStudy.series.join(" · ")}`}</div><div style={{ display: "grid", gridTemplateColumns: tab === "XQ" ? "1fr 1fr" : "1fr", gap: 10 }}>{Array.from({ length: tab === "XQ" ? 2 : 1 }).map((_, index) => <ScanViewport key={index} patient={patient} imageUrl={tab === "XQ" ? currentStudy.images?.[index] : currentStudy.image} study={{ id: `${currentStudy.id}-${index}`, modality: tab, date: currentStudy.date, region: currentStudy.label }} />)}</div>{tab !== "XQ" && <p style={{ fontSize: 11, color: C.inkFaint }}>Kéo chuột để pan, cuộn để zoom. Double-click để reset preview.</p>}</>}</div>; }
+function SingleCase({ patient }) { const [tab, setTab] = useState("ehr"); return <main style={{ minHeight: "100vh", background: C.bg, color: C.ink, fontFamily: "'Inter', sans-serif" }}><style>{FONTS}</style><header style={{ padding: "18px 26px 0", background: C.surface, borderBottom: `1px solid ${C.border}` }}><div style={{ fontWeight: 700 }}>Ca mẫu · {patient.id}</div><div style={{ fontSize: 12, color: C.inkMuted, marginTop: 4 }}>Chỉ có một ca trong sample_data; chưa có bệnh nhân tương tự để đối chiếu.</div><nav style={{ marginTop: 14, display: "flex", gap: 4 }}>{tabs.map(([id, label, Icon]) => <button key={id} onClick={() => setTab(id)} style={{ border: 0, borderBottom: tab === id ? `2px solid ${C.teal}` : "2px solid transparent", padding: "10px 14px", background: "none", cursor: "pointer", color: tab === id ? C.ink : C.inkFaint, fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}><Icon size={15} />{label}</button>)}</nav></header><div style={{ maxWidth: 900, margin: "0 auto" }}><PatientPanel title="Bệnh nhân query" patient={patient} tab={tab} /></div></main>; }
+function Card({ title, children }) { return <div style={{ border: `1px solid ${C.border}`, background: "white", borderRadius: 8, padding: "11px 12px", fontSize: 13, lineHeight: 1.5 }}><div style={{ fontSize: 10, fontWeight: 700, color: C.inkFaint, textTransform: "uppercase", marginBottom: 4 }}>{title}</div>{children}</div>; }
+function Centered({ children }) { return <div style={{ minHeight: "100vh", display: "grid", placeItems: "center", fontFamily: "Inter, sans-serif", color: C.inkMuted }}>{children}</div>; }
+const labelStyle = { display: "block", fontSize: 11, color: C.inkMuted, fontWeight: 700, textTransform: "uppercase", letterSpacing: .3 };
+const selectStyle = { display: "block", marginTop: 5, width: "100%", padding: "8px 9px", border: `1px solid ${C.border}`, borderRadius: 6, background: "white", color: C.ink };
+const searchBox = { margin: "0 14px 10px", padding: "8px 10px", background: "#0f1a22", border: "1px solid #2a3d4c", borderRadius: 7, display: "flex", gap: 7 };
+const searchInput = { border: 0, outline: 0, width: "100%", background: "transparent", color: "white" };
