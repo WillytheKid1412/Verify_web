@@ -4,10 +4,12 @@ import { C } from "../theme.js";
 
 export function StatusBadge({ status }) {
   const map = {
-    pending: { label: "Chờ duyệt", bg: C.amberSoft, fg: "#8A6413", icon: Clock },
-    approved: { label: "Đã duyệt", bg: C.tealSoft, fg: "#0B6C62", icon: CheckCircle2 },
-    rejected: { label: "Từ chối", bg: C.redSoft, fg: "#8F332B", icon: XCircle },
-    flagged: { label: "Cần xem lại", bg: "#EFE7FB", fg: "#5B3B9E", icon: FlagTriangleRight },
+    pending: { label: "Chờ đánh giá", bg: C.amberSoft, fg: "#8A6413", icon: Clock },
+    very_similar: { label: "Rất tương tự", bg: C.tealSoft, fg: "#0B6C62", icon: CheckCircle2 },
+    similar: { label: "Tương tự", bg: "#E8F2FA", fg: "#24618A", icon: CheckCircle2 },
+    uncertain: { label: "Chưa rõ", bg: C.amberSoft, fg: "#8A6413", icon: FlagTriangleRight },
+    dissimilar: { label: "Khác biệt", bg: "#F9EEE7", fg: "#9A5A1A", icon: XCircle },
+    very_dissimilar: { label: "Rất khác biệt", bg: C.redSoft, fg: "#8F332B", icon: XCircle },
   };
   const s = map[status] || map.pending;
   const Icon = s.icon;

@@ -2,7 +2,7 @@
 
 Ứng dụng web hỗ trợ bác sĩ đối chiếu một **bệnh nhân truy vấn** với lần lượt 20 **bệnh nhân tương tự** do hệ thống truy hồi trả về. Dự án gồm frontend React + Vite và backend Node.js/Express, đóng gói bằng Docker.
 
-> Hiện mã nguồn vẫn đang dùng dữ liệu mock. Phần thiết kế dưới đây là đặc tả giao diện và luồng dữ liệu sẽ được triển khai với dữ liệu trong `sample_data` trước, sau đó chuyển sang kho dữ liệu thực.
+> Bản demo đọc trực tiếp dữ liệu raw ở chế độ chỉ đọc. Phiên đối chiếu được lấy từ `backend/src/data/retrieval.json`; số kết quả hiển thị đúng bằng số phần tử trong `similar_patients`.
 
 ⚠️ Không dùng trực tiếp cho dữ liệu bệnh nhân thật nếu chưa có xác thực, phân quyền, audit log, mã hóa và đánh giá tuân thủ quy định y tế.
 
@@ -110,6 +110,7 @@ Mỗi bệnh nhân được đọc từ thư mục dữ liệu raw, theo mẫu t
 - Khi phát triển UI, dùng `sample_data` và các PNG preview đi kèm.
 - Khi triển khai dữ liệu thật, backend dùng path `/mnt/disk4/namtn/similar_case_retrieval/working/our_method/data/raw` qua Docker volume chỉ đọc.
 - Dữ liệu verification được lưu tách biệt với dữ liệu raw.
+- Endpoint ảnh chỉ trả về một lát đã window/resize; trình duyệt không nhận file `raw.npy`.
 
 ## Cấu trúc dự án
 
@@ -128,7 +129,8 @@ docker compose up --build
 ```
 
 - Frontend: http://localhost:5173
-- Backend API: http://localhost:4000/api
+- Backend API: http://localhost:4001/api (hoặc cùng-origin `/api` qua frontend tại http://localhost:5174)
+- Query demo: `24179852`; danh sách và điểm retrieval nằm trong `backend/src/data/retrieval.json`.
 
 Dừng: `docker compose down`
 Xóa cả dữ liệu đã lưu (verifications): `docker compose down -v`
@@ -139,14 +141,14 @@ Backend:
 ```bash
 cd backend
 npm install
-npm run dev      # http://localhost:4000
+npm run dev      # http://localhost:4000 (hoặc PORT=4001 npm run dev nếu port 4000 đang bận)
 ```
 
 Frontend (terminal khác):
 ```bash
 cd frontend
 npm install
-npm run dev       # http://localhost:5173, tự gọi backend ở localhost:4000
+VITE_API_URL=http://localhost:4001/api npm run dev
 ```
 
 ## API hiện có
@@ -157,13 +159,10 @@ npm run dev       # http://localhost:5173, tự gọi backend ở localhost:4000
 | GET    | /api/patients/:id              | Chi tiết đầy đủ 1 bệnh nhân             |
 | POST   | /api/patients/:id/verify       | Gửi kết quả xác minh `{status, note}`   |
 
-`status` hợp lệ: `pending` \| `approved` \| `rejected` \| `flagged`
+`status` hợp lệ: `pending` \| `very_similar` \| `similar` \| `uncertain` \| `dissimilar` \| `very_dissimilar`
 
-## Việc cần làm trước khi dùng dữ liệu thật
+### Cập nhật danh sách retrieval và xuất đánh giá
 
-- [ ] Thay file JSON bằng database thật (PostgreSQL/MongoDB) + migration
-- [ ] Thêm xác thực & phân quyền (JWT/OAuth, RBAC theo vai trò bác sĩ/điều dưỡng)
-- [ ] Audit log: ai xem/duyệt hồ sơ, lúc nào
-- [ ] Kết nối kho dữ liệu raw và endpoint cung cấp slice/volume đã tiền xử lý cho CT/MRI
-- [ ] Mã hóa dữ liệu khi lưu & khi truyền (HTTPS/TLS)
-- [ ] Rà soát tuân thủ quy định bảo vệ dữ liệu y tế hiện hành
+- Sửa `backend/src/data/retrieval.json`; mỗi phần tử hợp lệ trong `similar_patients` sẽ xuất hiện ở sidebar. Với Docker đang chạy, chỉ cần lưu file và refresh web để nạp lại danh sách.
+- Mỗi kết quả được bác sĩ đánh giá ở một trong năm mức: `very_similar`, `similar`, `uncertain`, `dissimilar`, `very_dissimilar`.
+- Hai nút **CSV** và **JSON** trong thanh đánh giá tải toàn bộ kết quả hiện tại, gồm rank, retrieval score, mức đánh giá, ghi chú, người review và thời điểm.

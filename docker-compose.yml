@@ -4,14 +4,17 @@ services:
       context: ./backend
     container_name: patient-verify-backend
     ports:
-      - "4000:4000"
+      - "4001:4000"
     environment:
       - PORT=4000
       - DATA_DIR=/app/data
-      - DEMO_SAMPLE=true
+      - RAW_ROOT=/app/raw
+      - QUERY_PATIENT_ID=24179852
       - SAMPLE_DATA_DIR=/app/sample_data
     volumes:
       - backend_data:/app/data
+      - /mnt/disk4/namtn/similar_case_retrieval/working/our_method/data/raw:/app/raw:ro
+      - ./backend/src/data/retrieval.json:/app/src/data/retrieval.json:ro
       - ./sample_data:/app/sample_data:ro
     restart: unless-stopped
 
@@ -19,10 +22,11 @@ services:
     build:
       context: ./frontend
       args:
-        VITE_API_URL: http://localhost:4000/api
+        # Browser calls same-origin /api; Nginx proxies it to backend:4000.
+        VITE_API_URL: /api
     container_name: patient-verify-frontend
     ports:
-      - "5173:80"
+      - "5174:80"
     depends_on:
       - backend
     restart: unless-stopped

@@ -1,53 +1,68 @@
-import retrieval from "./retrieval.json" with { type: "json" };
-import { generatePatients } from "./patients.js";
+import fs from "fs";
+import { fileURLToPath } from "url";
+import { getPatient } from "./rawPatients.js";
 import { getVerification, setVerification } from "./store.js";
-import { SAMPLE_PATIENT } from "./sample.js";
 
-const seedPatients = generatePatients(21);
+const RETRIEVAL_FILE = fileURLToPath(new URL("./retrieval.json", import.meta.url));
 
-function makePatient(id, index) {
-  const source = seedPatients[index % seedPatients.length];
-  const records = [
-    { id: "25.052970", label: "Bệnh án 25.052970", date: source.admitted },
-    { id: "24.110251", label: "Bệnh án 24.110251", date: "2025-11-02" },
-  ];
-  return {
-    ...source,
-    id,
-    records,
-    ehr: { complaint: source.complaint, diagnosis: source.dx, history: source.history, medications: source.medications, allergies: source.allergies },
-    studies: {
-      XQ: [{ id: "xq-1", label: "XQ ngực thẳng", date: source.admitted, imageCount: 2 }],
-      CT: [{ id: "ct-1", label: "CT ngực", date: source.admitted, series: ["Mediastinum", "Lung window"] }],
-      MRI: [{ id: "mri-1", label: "MRI vùng khảo sát", date: source.admitted, series: ["T2 sagittal", "T2 axial"] }],
-    },
-  };
+function loadContext() {
+  let retrieval;
+  try {
+    retrieval = JSON.parse(fs.readFileSync(RETRIEVAL_FILE, "utf8"));
+  } catch (error) {
+    throw new Error(`Không đọc được retrieval.json: ${error.message}`);
+  }
+  if (!retrieval?.patient_id || !Array.isArray(retrieval.similar_patients)) {
+    throw new Error("retrieval.json phải có patient_id và mảng similar_patients.");
+  }
+  const query = getPatient(String(retrieval.patient_id));
+  if (!query) throw new Error(`Không đọc được query ${retrieval.patient_id} trong data/raw.`);
+  const candidates = retrieval.similar_patients.map((item, index) => ({
+    rank: Number.isInteger(item.rank) ? item.rank : index + 1,
+    patient_id: String(item.patient_id || ""),
+    similarity_score: Number(item.similarity_score),
+  })).filter((item) => item.patient_id && Number.isFinite(item.similarity_score));
+  return { query, candidates };
 }
 
-const query = makePatient(retrieval.patient_id, 0);
-const candidates = retrieval.similar_patients.map((item, index) => ({
-  ...item,
-  patient: makePatient(item.patient_id, index + 1),
-}));
+function withVerification(queryId, candidate) {
+  return { ...candidate, verification: getVerification(`${queryId}:${candidate.patient_id}`) };
+}
 
 export function getComparisonSession() {
-  if (process.env.DEMO_SAMPLE === "true") return { query: SAMPLE_PATIENT, candidates: [{ rank: 1, patient_id: SAMPLE_PATIENT.id, similarity_score: 1, patient: { ...SAMPLE_PATIENT, verification: getVerification(`${SAMPLE_PATIENT.id}:${SAMPLE_PATIENT.id}`) } }] };
-  return {
-    query,
-    candidates: candidates.map(({ patient, ...candidate }) => ({
-      ...candidate,
-      patient: { ...patient, verification: getVerification(`${query.id}:${patient.id}`) },
-    })),
-  };
+  const { query, candidates } = loadContext();
+  return { query, candidates: candidates.map((candidate) => withVerification(query.id, candidate)) };
+}
+
+export function getComparisonCandidate(similarPatientId) {
+  const { query, candidates } = loadContext();
+  const candidate = candidates.find((item) => item.patient_id === similarPatientId);
+  if (!candidate) return null;
+  const patient = getPatient(similarPatientId);
+  return patient ? { ...withVerification(query.id, candidate), patient } : null;
 }
 
 export function saveComparisonDecision(similarPatientId, payload) {
-  if (process.env.DEMO_SAMPLE === "true" && similarPatientId === SAMPLE_PATIENT.id) {
-    const saved = setVerification(`${SAMPLE_PATIENT.id}:${SAMPLE_PATIENT.id}`, payload);
-    return { queryPatientId: SAMPLE_PATIENT.id, similarPatientId, rank: 1, similarityScore: 1, ...saved };
-  }
+  const { query, candidates } = loadContext();
   const candidate = candidates.find((item) => item.patient_id === similarPatientId);
   if (!candidate) return null;
   const saved = setVerification(`${query.id}:${similarPatientId}`, payload);
   return { queryPatientId: query.id, similarPatientId, rank: candidate.rank, similarityScore: candidate.similarity_score, ...saved };
+}
+
+export function getComparisonExport() {
+  const { query, candidates } = loadContext();
+  return candidates.map((candidate) => {
+    const review = getVerification(`${query.id}:${candidate.patient_id}`) || {};
+    return {
+      query_patient_id: query.id,
+      similar_patient_id: candidate.patient_id,
+      rank: candidate.rank,
+      similarity_score: candidate.similarity_score,
+      review_level: review.status || "pending",
+      note: review.note || "",
+      reviewer: review.reviewer || "",
+      reviewed_at: review.at || "",
+    };
+  });
 }

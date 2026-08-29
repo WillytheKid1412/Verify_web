@@ -2,6 +2,7 @@ import express from "express";
 import cors from "cors";
 import patientsRouter from "./routes/patients.js";
 import comparisonRouter from "./routes/comparison.js";
+import imagingRouter from "./routes/imaging.js";
 import path from "path";
 
 const app = express();
@@ -17,6 +18,7 @@ app.use("/sample", express.static(sampleDataDir));
 app.get("/api/health", (req, res) => res.json({ ok: true }));
 app.use("/api/patients", patientsRouter);
 app.use("/api/comparison", comparisonRouter);
+app.use("/api/imaging", imagingRouter);
 
 app.listen(PORT, () => {
   console.log(`Backend đang chạy tại http://localhost:${PORT}`);

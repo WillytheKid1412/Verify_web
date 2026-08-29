@@ -1,4 +1,6 @@
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:4000/api";
+const API_URL = import.meta.env.VITE_API_URL || "/api";
+export const API_ORIGIN = API_URL.startsWith("http") ? API_URL.replace(/\/api$/, "") : "";
+export const comparisonExportUrl = (format) => `${API_URL}/comparison/export?format=${format}`;
 
 export async function fetchPatientList() {
   const res = await fetch(`${API_URL}/patients`);
@@ -25,6 +27,12 @@ export async function submitVerification(id, { status, note }) {
 export async function fetchComparison() {
   const res = await fetch(`${API_URL}/comparison`);
   if (!res.ok) throw new Error("Không tải được phiên đối chiếu");
+  return res.json();
+}
+
+export async function fetchComparisonCandidate(id) {
+  const res = await fetch(`${API_URL}/comparison/${encodeURIComponent(id)}`);
+  if (!res.ok) throw new Error("Không tải được hồ sơ bệnh nhân tương tự");
   return res.json();
 }
 
