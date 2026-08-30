@@ -9,12 +9,14 @@ services:
       - PORT=4000
       - DATA_DIR=/app/data
       - RAW_ROOT=/app/raw
-      - QUERY_PATIENT_ID=24179852
+      - QUERY_PATIENT_ID=08002530
       - SAMPLE_DATA_DIR=/app/sample_data
+      - TOPK_FILE=/app/retrieval/top20_related_patients.csv
     volumes:
       - backend_data:/app/data
       - /mnt/disk4/namtn/similar_case_retrieval/working/our_method/data/raw:/app/raw:ro
       - ./backend/src/data/retrieval.json:/app/src/data/retrieval.json:ro
+      - ${TOPK_HOST_FILE:-/mnt/disk4/similar_cases_retrieval/data/experiments/patient_fusion/top20_attention_pool_all_patients_v1/top20_related_patients.csv}:/app/retrieval/top20_related_patients.csv:ro
       - ./sample_data:/app/sample_data:ro
     restart: unless-stopped
 

@@ -20,6 +20,13 @@ app.use("/api/patients", patientsRouter);
 app.use("/api/comparison", comparisonRouter);
 app.use("/api/imaging", imagingRouter);
 
+app.use((error, req, res, next) => {
+  if (res.headersSent) return next(error);
+  const status = error.status || 500;
+  if (status >= 500) console.error(error);
+  res.status(status).json({ error: error.message || "Lỗi máy chủ" });
+});
+
 app.listen(PORT, () => {
   console.log(`Backend đang chạy tại http://localhost:${PORT}`);
 });

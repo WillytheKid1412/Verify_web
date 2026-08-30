@@ -2,7 +2,9 @@
 
 Ứng dụng web hỗ trợ bác sĩ đối chiếu một **bệnh nhân truy vấn** với lần lượt 20 **bệnh nhân tương tự** do hệ thống truy hồi trả về. Dự án gồm frontend React + Vite và backend Node.js/Express, đóng gói bằng Docker.
 
-> Bản demo đọc trực tiếp dữ liệu raw ở chế độ chỉ đọc. Phiên đối chiếu được lấy từ `backend/src/data/retrieval.json`; số kết quả hiển thị đúng bằng số phần tử trong `similar_patients`.
+> Bản demo đọc trực tiếp dữ liệu raw ở chế độ chỉ đọc. Backend đọc rank và
+> cosine similarity từ artifact Top-20; `backend/src/data/retrieval.json`
+> chọn chính xác các query sẽ được verify trong phiên hiện tại.
 
 ⚠️ Không dùng trực tiếp cho dữ liệu bệnh nhân thật nếu chưa có xác thực, phân quyền, audit log, mã hóa và đánh giá tuân thủ quy định y tế.
 
@@ -43,10 +45,21 @@ Sidebar: Query + danh sách #1 ... #20
 
 ### Sidebar và thứ hạng
 
+- Có thể tìm/chọn một query trong danh sách được cấu hình để verify.
 - Hiển thị bệnh nhân query và 20 kết quả theo `rank`.
 - Mỗi kết quả có mã bệnh nhân, điểm tương đồng dạng phần trăm và trạng thái review.
 - Bác sĩ chọn một kết quả để mở ở panel bên phải; panel query bên trái luôn giữ bệnh nhân query.
 - Có ô tìm kiếm theo mã bệnh nhân và bộ đếm số kết quả đã xử lý.
+
+### Điểm giống quan sát được
+
+- Header đối chiếu hiển thị nhóm primary ICD chung lấy trực tiếp từ artifact
+  retrieval, từ khóa EHR chung, xét nghiệm chung/bất thường chung và modality
+  ảnh mà cả hai bệnh nhân đều có.
+- Từ khóa EHR chung được highlight màu vàng trong cả hai panel. Xét nghiệm
+  xuất hiện ở cả hai bệnh nhân được highlight theo hàng.
+- Các highlight là overlap có thể kiểm chứng từ raw data; chúng không được mô
+  tả là lời giải thích nhân quả cho cosine similarity của model.
 
 ### Chọn bệnh án
 
@@ -128,9 +141,12 @@ patient-verify-app/
 docker compose up --build
 ```
 
-- Frontend: http://localhost:5173
+- Frontend: http://localhost:5174
 - Backend API: http://localhost:4001/api (hoặc cùng-origin `/api` qua frontend tại http://localhost:5174)
-- Query demo: `24179852`; danh sách và điểm retrieval nằm trong `backend/src/data/retrieval.json`.
+- 10 query được chọn trong `backend/src/data/retrieval.json`; Top-20 và điểm retrieval của từng query đọc từ CSV production.
+- Docker mặc định mount Top-20 production tại
+  `/mnt/disk4/similar_cases_retrieval/data/experiments/patient_fusion/top20_attention_pool_all_patients_v1/top20_related_patients.csv`.
+  Có thể override host path bằng biến `TOPK_HOST_FILE`.
 
 Dừng: `docker compose down`
 Xóa cả dữ liệu đã lưu (verifications): `docker compose down -v`
@@ -163,6 +179,6 @@ VITE_API_URL=http://localhost:4001/api npm run dev
 
 ### Cập nhật danh sách retrieval và xuất đánh giá
 
-- Sửa `backend/src/data/retrieval.json`; mỗi phần tử hợp lệ trong `similar_patients` sẽ xuất hiện ở sidebar. Với Docker đang chạy, chỉ cần lưu file và refresh web để nạp lại danh sách.
+- Sửa mảng `query_patient_ids` trong `backend/src/data/retrieval.json`. Mỗi ID phải có trong Top-K CSV và có raw data; web sẽ hiển thị đúng các query này theo thứ tự trong JSON. Với Docker đang chạy, chỉ cần lưu file và refresh web để nạp lại danh sách.
 - Mỗi kết quả được bác sĩ đánh giá ở một trong năm mức: `very_similar`, `similar`, `uncertain`, `dissimilar`, `very_dissimilar`.
 - Hai nút **CSV** và **JSON** trong thanh đánh giá tải toàn bộ kết quả hiện tại, gồm rank, retrieval score, mức đánh giá, ghi chú, người review và thời điểm.

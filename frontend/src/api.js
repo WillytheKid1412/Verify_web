@@ -1,6 +1,9 @@
 const API_URL = import.meta.env.VITE_API_URL || "/api";
 export const API_ORIGIN = API_URL.startsWith("http") ? API_URL.replace(/\/api$/, "") : "";
-export const comparisonExportUrl = (format) => `${API_URL}/comparison/export?format=${format}`;
+const queryParam = (queryPatientId) => queryPatientId
+  ? `query_patient_id=${encodeURIComponent(queryPatientId)}` : "";
+export const comparisonExportUrl = (format, queryPatientId) =>
+  `${API_URL}/comparison/export?format=${format}&${queryParam(queryPatientId)}`;
 
 export async function fetchPatientList() {
   const res = await fetch(`${API_URL}/patients`);
@@ -24,23 +27,30 @@ export async function submitVerification(id, { status, note }) {
   return res.json();
 }
 
-export async function fetchComparison() {
-  const res = await fetch(`${API_URL}/comparison`);
+export async function fetchComparisonQueries() {
+  const res = await fetch(`${API_URL}/comparison/queries`);
+  if (!res.ok) throw new Error("Không tải được danh sách query");
+  return res.json();
+}
+
+export async function fetchComparison(queryPatientId) {
+  const suffix = queryParam(queryPatientId);
+  const res = await fetch(`${API_URL}/comparison${suffix ? `?${suffix}` : ""}`);
   if (!res.ok) throw new Error("Không tải được phiên đối chiếu");
   return res.json();
 }
 
-export async function fetchComparisonCandidate(id) {
-  const res = await fetch(`${API_URL}/comparison/${encodeURIComponent(id)}`);
+export async function fetchComparisonCandidate(queryPatientId, id) {
+  const res = await fetch(`${API_URL}/comparison/${encodeURIComponent(id)}?${queryParam(queryPatientId)}`);
   if (!res.ok) throw new Error("Không tải được hồ sơ bệnh nhân tương tự");
   return res.json();
 }
 
-export async function submitComparisonVerification(id, { status, note }) {
+export async function submitComparisonVerification(queryPatientId, id, { status, note }) {
   const res = await fetch(`${API_URL}/comparison/${id}/verify`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ status, note }),
+    body: JSON.stringify({ query_patient_id: queryPatientId, status, note }),
   });
   if (!res.ok) throw new Error("Không lưu được kết quả xác minh");
   return res.json();
