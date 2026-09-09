@@ -176,6 +176,19 @@ ADMIN_PASSWORD=<mat-khau-manh>
 
 `DATA_DIR` cũng lưu `users.json` và `verifications.json`, nên tài khoản và kết quả không mất khi deploy lại. Không được commit `ADMIN_PASSWORD`; hãy khai báo nó bằng Railway Variables.
 
+Sau khi cài Railway CLI, đăng nhập và link đúng project/service backend, có thể tạo và nạp volume từ thư mục gốc dự án như sau (thay `<volume-name>` bằng tên volume vừa tạo):
+
+```bash
+railway volume add --mount-path /app/data --service backend
+railway volume files --volume <volume-name> upload ./sample_data/raw /raw
+railway volume files --volume <volume-name> upload ./sample_data/retrieval /retrieval
+railway volume files --volume <volume-name> upload ./sample_data/retrieval.json /retrieval.json
+railway volume files --volume <volume-name> upload ./sample_data/manifest.json /manifest.json
+railway volume files --volume <volume-name> list /
+```
+
+Railway hỗ trợ upload cả file lẫn thư mục bằng CLI; xem [tài liệu quản lý volume](https://docs.railway.com/cli/volume).
+
 > Dữ liệu demo này vẫn xuất phát từ hồ sơ y tế. Trước khi public URL, cần khử định danh/đánh giá tuân thủ và giới hạn truy cập ngoài lớp đăng nhập của ứng dụng.
 
 ## Chạy bằng Docker (khuyến nghị)
