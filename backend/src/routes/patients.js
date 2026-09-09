@@ -31,13 +31,13 @@ router.post("/:id/verify", (req, res) => {
   const patient = PATIENTS.find((p) => p.id === req.params.id);
   if (!patient) return res.status(404).json({ error: "Không tìm thấy bệnh nhân" });
 
-  const { status, note, reviewer } = req.body || {};
+  const { status, note } = req.body || {};
   const allowed = ["pending", "approved", "rejected", "flagged"];
   if (!allowed.includes(status)) {
     return res.status(400).json({ error: `status phải là một trong: ${allowed.join(", ")}` });
   }
 
-  const saved = setVerification(patient.id, { status, note, reviewer });
+  const saved = setVerification(patient.id, { status, note, reviewer: req.user.username });
   res.json({ id: patient.id, ...saved });
 });
 

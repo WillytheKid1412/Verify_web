@@ -1,16 +1,17 @@
 # Hệ thống xác minh bệnh nhân tương tự
 
-Ứng dụng web hỗ trợ bác sĩ đối chiếu một **bệnh nhân truy vấn** với lần lượt 20 **bệnh nhân tương tự** do hệ thống truy hồi trả về. Dự án gồm frontend React + Vite và backend Node.js/Express, đóng gói bằng Docker.
+Ứng dụng web hỗ trợ bác sĩ đối chiếu 5 **bệnh nhân truy vấn**, mỗi bệnh nhân với 5 **bệnh nhân tương tự** đứng đầu trong CSV Top-20. Dự án gồm frontend React + Vite và backend Node.js/Express, đóng gói bằng Docker.
 
 > Bản demo đọc trực tiếp dữ liệu raw ở chế độ chỉ đọc. Backend đọc rank và
-> cosine similarity từ artifact Top-20; `backend/src/data/retrieval.json`
-> chọn chính xác các query sẽ được verify trong phiên hiện tại.
+> cosine similarity từ artifact CSV Top-20; `backend/src/data/retrieval.json`
+> chọn chính xác 5 query sẽ được verify trong phiên hiện tại. Backend chỉ lấy
+> các dòng rank 1–5 và không dùng retrieval JSON dự phòng.
 
 ⚠️ Không dùng trực tiếp cho dữ liệu bệnh nhân thật nếu chưa có xác thực, phân quyền, audit log, mã hóa và đánh giá tuân thủ quy định y tế.
 
 ## Mục tiêu
 
-Bác sĩ nhận một file JSON gồm một bệnh nhân query và tối đa 20 bệnh nhân tương tự. Với từng kết quả, bác sĩ so sánh hai hồ sơ theo cùng một loại dữ liệu tại một thời điểm, sau đó ghi nhận kết luận.
+Bác sĩ đăng nhập để chọn một trong 5 bệnh nhân query và đối chiếu tối đa 5 bệnh nhân tương tự. Với từng kết quả, bác sĩ so sánh hai hồ sơ theo cùng một loại dữ liệu tại một thời điểm, sau đó ghi nhận kết luận.
 
 Ví dụ dữ liệu đầu vào:
 
@@ -28,10 +29,10 @@ Ví dụ dữ liệu đầu vào:
 
 ## Thiết kế giao diện
 
-Giao diện có sidebar danh sách 20 kết quả và hai panel đối chiếu cố định:
+Giao diện có sidebar danh sách 5 kết quả và hai panel đối chiếu cố định:
 
 ```text
-Sidebar: Query + danh sách #1 ... #20
+Sidebar: Query + danh sách #1 ... #5
 
 ┌────────────── Bệnh nhân query ──────────────┬────────── Bệnh nhân tương tự #n ──────────┐
 │ Mã BN, thông tin cơ bản, chọn bệnh án        │ Rank, similarity score, chọn bệnh án        │
@@ -46,7 +47,7 @@ Sidebar: Query + danh sách #1 ... #20
 ### Sidebar và thứ hạng
 
 - Có thể tìm/chọn một query trong danh sách được cấu hình để verify.
-- Hiển thị bệnh nhân query và 20 kết quả theo `rank`.
+- Hiển thị bệnh nhân query và 5 kết quả đầu theo `rank` lấy từ CSV.
 - Mỗi kết quả có mã bệnh nhân, điểm tương đồng dạng phần trăm và trạng thái review.
 - Bác sĩ chọn một kết quả để mở ở panel bên phải; panel query bên trái luôn giữ bệnh nhân query.
 - Có ô tìm kiếm theo mã bệnh nhân và bộ đếm số kết quả đã xử lý.
@@ -98,13 +99,22 @@ Hai panel dùng cùng chiều rộng, cấu trúc header và vùng nội dung t�
 
 ### Kết quả xác minh
 
-Với mỗi cặp query–similar patient, bác sĩ có thể chọn:
+Với mỗi cặp query–similar patient, bác sĩ có thể chọn một trong năm mức:
 
-- `Xác nhận tương tự`
-- `Không tương tự`
-- `Cần xem lại`
+- `Rất tương tự`
+- `Tương tự`
+- `Chưa rõ`
+- `Khác biệt`
+- `Rất khác`
 
 Kết quả lưu kèm ghi chú, người review, thời điểm, `query_patient_id`, `similar_patient_id`, `rank` và `similarity_score` để truy vết.
+
+## Đăng nhập và phân quyền
+
+- Mọi API chứa dữ liệu bệnh nhân đều yêu cầu đăng nhập bằng Bearer token.
+- Tài khoản `reviewer` có thể xem hồ sơ và lưu đánh giá.
+- Chỉ tài khoản `admin` thấy khu vực **Quản lý tài khoản**, được tạo tài khoản mới và được xem/tải kết quả CSV hoặc JSON. Backend vẫn kiểm tra quyền admin nếu gọi endpoint trực tiếp.
+- Mật khẩu được băm bằng `scrypt`; file người dùng và kết quả đánh giá nằm trong volume dữ liệu riêng. Phiên đăng nhập có hạn 12 giờ và bị xóa khi backend khởi động lại.
 
 ## Dữ liệu nguồn dự kiến
 
@@ -130,26 +140,65 @@ Mỗi bệnh nhân được đọc từ thư mục dữ liệu raw, theo mẫu t
 ```
 patient-verify-app/
 ├── docker-compose.yml
-├── sample_data/ # Ví dụ cấu trúc dữ liệu và ảnh preview của một bệnh nhân
+├── sample_data/ # Gói demo ~200 MB, không được commit vào Git
 ├── backend/     # Express API, lớp đọc dữ liệu và lưu kết quả verification
 └── frontend/    # React UI hai panel đối chiếu
 ```
 
-## Chạy bằng Docker (khuyến nghị)
+## Gói dữ liệu demo cho Railway
 
-```bash
-docker compose up --build
+Thư mục `sample_data` hiện chứa đủ 5 query và Top-5 của mỗi query (30 bệnh nhân duy nhất):
+
+```text
+sample_data/
+├── raw/                                      # EHR, lab và imaging đã rút gọn
+├── retrieval/top5_related_patients.csv      # đúng 25 cặp, rank 1–5
+├── retrieval.json                           # đúng 5 query
+└── manifest.json                            # thống kê và tham số rút gọn
 ```
+
+- CT/MRI giữ tối đa 3 lát đại diện cho mỗi series, cạnh dài tối đa 512 px.
+- XQ giữ 1 ảnh cho mỗi series, cạnh dài tối đa 384 px.
+- Toàn bộ EHR, lab và cấu trúc study/series được giữ lại.
+- 214 file NPY, khoảng 194 MB dữ liệu (khoảng 189 MiB trên Linux), giảm từ khoảng 16,9 GB raw ban đầu.
+
+`sample_data` được `.gitignore` bỏ qua. Với backend Railway, tạo một volume mount tại `/app/data`, upload nội dung của `sample_data` vào volume, sau đó đặt các biến:
+
+```dotenv
+DATA_DIR=/app/data
+RAW_ROOT=/app/data/raw
+TOPK_FILE=/app/data/retrieval/top5_related_patients.csv
+RETRIEVAL_FILE=/app/data/retrieval.json
+QUERY_PATIENT_ID=24179852
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=<mat-khau-manh>
+```
+
+`DATA_DIR` cũng lưu `users.json` và `verifications.json`, nên tài khoản và kết quả không mất khi deploy lại. Không được commit `ADMIN_PASSWORD`; hãy khai báo nó bằng Railway Variables.
+
+> Dữ liệu demo này vẫn xuất phát từ hồ sơ y tế. Trước khi public URL, cần khử định danh/đánh giá tuân thủ và giới hạn truy cập ngoài lớp đăng nhập của ứng dụng.
+
+## Chạy bằng Docker (khuyến nghị)
 
 - Frontend: http://localhost:5174
 - Backend API: http://localhost:4001/api (hoặc cùng-origin `/api` qua frontend tại http://localhost:5174)
-- 10 query được chọn trong `backend/src/data/retrieval.json`; Top-20 và điểm retrieval của từng query đọc từ CSV production.
+- 5 query được chọn trong `backend/src/data/retrieval.json`; Top-5 và điểm retrieval của từng query được lọc từ CSV production Top-20.
 - Docker mặc định mount Top-20 production tại
   `/mnt/disk4/similar_cases_retrieval/data/experiments/patient_fusion/top20_attention_pool_all_patients_v1/top20_related_patients.csv`.
   Có thể override host path bằng biến `TOPK_HOST_FILE`.
 
+Trước lần chạy đầu, tạo `.env` từ file mẫu rồi đặt tài khoản quản trị ban đầu:
+
+```bash
+cp .env.example .env
+# sửa ADMIN_PASSWORD trong .env, sau đó:
+docker compose up --build
+```
+
+Thông tin này chỉ dùng để khởi tạo khi volume chưa có `users.json`. Sau đó admin tạo tài khoản reviewer trong giao diện. Không commit mật khẩu thật vào repository.
+
 Dừng: `docker compose down`
-Xóa cả dữ liệu đã lưu (verifications): `docker compose down -v`
+Xóa cả dữ liệu đã lưu (verifications và tài khoản): `docker compose down -v`
 
 ## Chạy không dùng Docker (phát triển local)
 
@@ -157,7 +206,9 @@ Backend:
 ```bash
 cd backend
 npm install
-npm run dev      # http://localhost:4000 (hoặc PORT=4001 npm run dev nếu port 4000 đang bận)
+ADMIN_USERNAME=admin ADMIN_PASSWORD='mật-khẩu-mạnh' \
+TOPK_FILE=/đường/dẫn/top20_related_patients.csv npm run dev
+# http://localhost:4000 (hoặc thêm PORT=4001 nếu port 4000 đang bận)
 ```
 
 Frontend (terminal khác):
@@ -171,14 +222,20 @@ VITE_API_URL=http://localhost:4001/api npm run dev
 
 | Method | Path                        | Mô tả                                  |
 |--------|------------------------------|-----------------------------------------|
+| POST   | /api/auth/login               | Đăng nhập và nhận Bearer token          |
+| GET    | /api/auth/me                  | Đọc tài khoản đang đăng nhập            |
+| POST   | /api/auth/logout              | Đăng xuất                               |
+| GET    | /api/auth/users               | Danh sách tài khoản (chỉ admin)         |
+| POST   | /api/auth/users               | Tạo tài khoản (chỉ admin)               |
 | GET    | /api/patients                 | Danh sách rút gọn (cho sidebar)         |
 | GET    | /api/patients/:id              | Chi tiết đầy đủ 1 bệnh nhân             |
 | POST   | /api/patients/:id/verify       | Gửi kết quả xác minh `{status, note}`   |
+| GET    | /api/comparison/export         | Tải CSV/JSON kết quả (chỉ admin)        |
 
 `status` hợp lệ: `pending` \| `very_similar` \| `similar` \| `uncertain` \| `dissimilar` \| `very_dissimilar`
 
 ### Cập nhật danh sách retrieval và xuất đánh giá
 
-- Sửa mảng `query_patient_ids` trong `backend/src/data/retrieval.json`. Mỗi ID phải có trong Top-K CSV và có raw data; web sẽ hiển thị đúng các query này theo thứ tự trong JSON. Với Docker đang chạy, chỉ cần lưu file và refresh web để nạp lại danh sách.
+- Sửa mảng `query_patient_ids` trong `backend/src/data/retrieval.json` và giữ đúng 5 ID. Mỗi ID phải có trong CSV và có raw data; web hiển thị theo thứ tự trong JSON, mỗi ID chỉ có rank 1–5. Với Docker đang chạy, chỉ cần lưu file và refresh web để nạp lại danh sách.
 - Mỗi kết quả được bác sĩ đánh giá ở một trong năm mức: `very_similar`, `similar`, `uncertain`, `dissimilar`, `very_dissimilar`.
-- Hai nút **CSV** và **JSON** trong thanh đánh giá tải toàn bộ kết quả hiện tại, gồm rank, retrieval score, mức đánh giá, ghi chú, người review và thời điểm.
+- Hai nút **CSV** và **JSON** chỉ hiển thị cho admin và tải toàn bộ 5 kết quả hiện tại, gồm rank, retrieval score, mức đánh giá, ghi chú, người review và thời điểm.

@@ -9,9 +9,11 @@ services:
       - PORT=4000
       - DATA_DIR=/app/data
       - RAW_ROOT=/app/raw
-      - QUERY_PATIENT_ID=08002530
+      - QUERY_PATIENT_ID=24179852
       - SAMPLE_DATA_DIR=/app/sample_data
       - TOPK_FILE=/app/retrieval/top20_related_patients.csv
+      - ADMIN_USERNAME=${ADMIN_USERNAME:?Hãy đặt ADMIN_USERNAME trong file .env}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:?Hãy đặt ADMIN_PASSWORD trong file .env}
     volumes:
       - backend_data:/app/data
       - /mnt/disk4/namtn/similar_case_retrieval/working/our_method/data/raw:/app/raw:ro

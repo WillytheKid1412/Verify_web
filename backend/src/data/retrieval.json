@@ -1,15 +1,10 @@
 {
-  "description": "Chọn các query cần verify. Top-20, rank và cosine_similarity được backend đọc từ TOPK_FILE.",
+  "description": "Chọn 5 query cần verify. Mỗi query chỉ lấy rank 1-5 từ CSV TOPK_FILE.",
   "query_patient_ids": [
-    "08002530",
+    "24179852",
     "08003520",
     "08004171",
     "08006565",
-    "08009116",
-    "08010430",
-    "08010666",
-    "08011316",
-    "08011524",
-    "08012129"
+    "08009116"
   ]
 }

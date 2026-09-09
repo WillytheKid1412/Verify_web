@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { API_ORIGIN } from "../api.js";
+import { API_ORIGIN, apiFetch } from "../api.js";
 import { C } from "../theme.js";
 
 export default function ScanViewport({ series, modality, patient }) {
@@ -20,7 +20,7 @@ export default function ScanViewport({ series, modality, patient }) {
     const controller = new AbortController();
     setImage(null);
     setError("");
-    fetch(`${API_ORIGIN}${series.sliceUrl}&slice=${slice}`, { signal: controller.signal })
+    apiFetch(`${API_ORIGIN}${series.sliceUrl}&slice=${slice}`, { signal: controller.signal })
       .then((response) => response.ok ? response.json() : response.json().then((body) => Promise.reject(new Error(body.error))))
       .then(setImage)
       .catch((requestError) => { if (requestError.name !== "AbortError") setError(requestError.message || "Không tải được ảnh"); });

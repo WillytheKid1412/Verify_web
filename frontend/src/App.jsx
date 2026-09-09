@@ -1,11 +1,13 @@
 import React, { useEffect, useMemo, useState } from "react";
 import {
   CheckCircle2, ChevronRight, Download, FileText, FlaskConical,
-  Filter, FlagTriangleRight, Image, ScanLine, Search, ShieldCheck, XCircle,
+  Filter, FlagTriangleRight, Image, LogOut, ScanLine, Search, ShieldCheck,
+  UserPlus, Users, X, XCircle,
 } from "lucide-react";
 import {
-  comparisonExportUrl, fetchComparison, fetchComparisonCandidate,
-  fetchComparisonQueries, submitComparisonVerification,
+  createAccount, downloadComparisonExport, fetchComparison, fetchComparisonCandidate,
+  fetchComparisonQueries, fetchCurrentUser, fetchUsers, login, logout,
+  submitComparisonVerification,
 } from "./api.js";
 import { C, FONTS } from "./theme.js";
 import { ActionButton, StatusBadge, tdStyle, thStyle } from "./components/ui.jsx";
@@ -17,6 +19,24 @@ const tabs = [
 ];
 
 export default function App() {
+  const [user, setUser] = useState(null);
+  const [checkingAuth, setCheckingAuth] = useState(true);
+
+  useEffect(() => {
+    fetchCurrentUser().then(setUser).catch(() => setUser(null)).finally(() => setCheckingAuth(false));
+    const expire = () => setUser(null);
+    window.addEventListener("auth-expired", expire);
+    return () => window.removeEventListener("auth-expired", expire);
+  }, []);
+
+  if (checkingAuth) return <Centered>Đang kiểm tra phiên đăng nhập…</Centered>;
+  if (!user) return <LoginPage onAuthenticated={setUser} />;
+  return <VerifyApp user={user} onLogout={async () => {
+    try { await logout(); } finally { setUser(null); }
+  }} />;
+}
+
+function VerifyApp({ user, onLogout }) {
   const [session, setSession] = useState(null);
   const [queries, setQueries] = useState([]);
   const [queryPatientId, setQueryPatientId] = useState("");
@@ -29,6 +49,8 @@ export default function App() {
   const [saving, setSaving] = useState(false);
   const [loadingSession, setLoadingSession] = useState(true);
   const [showSimilarOnly, setShowSimilarOnly] = useState(false);
+  const [showAccounts, setShowAccounts] = useState(false);
+  const [exporting, setExporting] = useState("");
 
   async function loadSession(patientId) {
     const cleanId = String(patientId || "").trim();
@@ -80,7 +102,7 @@ export default function App() {
     [session, candidateSearch],
   );
   if (error && !session) return <Centered>Lỗi: {error}</Centered>;
-  if (!session) return <Centered>Đang tải Top-20 và dữ liệu raw…</Centered>;
+  if (!session) return <Centered>Đang tải Top-5 và dữ liệu raw…</Centered>;
 
   const status = candidate?.verification?.status || selectedSummary?.verification?.status || "pending";
   const similarityFilterActive = showSimilarOnly && (tab === "ehr" || tab === "labs");
@@ -119,6 +141,18 @@ export default function App() {
     }
   }
 
+  async function exportResults(format) {
+    setExporting(format);
+    setError("");
+    try {
+      await downloadComparisonExport(format, session.query.id);
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setExporting("");
+    }
+  }
+
   return <main style={{ minHeight: "100vh", display: "flex", background: C.bg, color: C.ink, fontFamily: "'Inter', sans-serif" }}>
     <style>{FONTS}</style>
     <aside style={{ width: 300, flexShrink: 0, background: C.navy, color: "white", display: "flex", flexDirection: "column" }}>
@@ -129,6 +163,11 @@ export default function App() {
         <div style={{ color: "#8da0ac", fontSize: 11, marginTop: 7 }}>
           {queries.length.toLocaleString("vi-VN")} query · {reviewed}/{session.candidates.length} kết quả đã xử lý
         </div>
+        <div style={accountSummaryStyle}>
+          <span style={{ minWidth: 0 }}><strong style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis" }}>{user.username}</strong>{user.role === "admin" ? "Quản trị viên" : "Người đánh giá"}</span>
+          <button onClick={onLogout} title="Đăng xuất" style={darkIconButtonStyle}><LogOut size={15} /></button>
+        </div>
+        {user.role === "admin" && <button onClick={() => setShowAccounts(true)} style={manageAccountsButtonStyle}><Users size={14} />Quản lý tài khoản</button>}
       </div>
       <div style={{ padding: "0 14px 12px" }}>
         <label style={{ fontSize: 10, color: "#8da0ac", fontWeight: 700, textTransform: "uppercase" }}>
@@ -144,11 +183,11 @@ export default function App() {
             </option>)}
           </select>
         </label>
-        <div style={{ marginTop: 5, color: "#8da0ac", fontSize: 10 }}>Chọn query để đổi sang Top-20 tương ứng.</div>
+        <div style={{ marginTop: 5, color: "#8da0ac", fontSize: 10 }}>Chọn query để đổi sang Top-5 tương ứng từ CSV.</div>
       </div>
       <div style={searchBox}>
         <Search size={14} color="#8da0ac" />
-        <input value={candidateSearch} onChange={(event) => setCandidateSearch(event.target.value)} placeholder="Lọc trong Top-20" style={searchInput} />
+        <input value={candidateSearch} onChange={(event) => setCandidateSearch(event.target.value)} placeholder="Lọc trong Top-5" style={searchInput} />
       </div>
       <div style={{ padding: "4px 8px", overflowY: "auto", flex: 1 }}>
         {filtered.map((item) => <button key={item.patient_id} onClick={() => setSelectedId(item.patient_id)} style={sidebarItemStyle(selectedId === item.patient_id)}>
@@ -191,19 +230,101 @@ export default function App() {
       <footer style={{ padding: "12px 22px", display: "flex", flexWrap: "wrap", gap: 9, alignItems: "center", background: C.surface, borderTop: `1px solid ${C.border}` }}>
         <input value={note} onChange={(event) => setNote(event.target.value)} placeholder="Ghi chú cho kết quả đối chiếu…" style={{ flex: "1 1 240px", minWidth: 170, padding: "9px 11px", borderRadius: 7, border: `1px solid ${C.border}` }} />
         {scoreLevel.map(([value, label, Icon, color]) => <ActionButton key={value} label={label} icon={Icon} color={color} onClick={() => decide(value)} disabled={saving || !candidate} active={status === value} />)}
-        <a href={comparisonExportUrl("csv", session.query.id)} style={exportLinkStyle}><Download size={14} />CSV</a>
-        <a href={comparisonExportUrl("json", session.query.id)} style={exportLinkStyle}><Download size={14} />JSON</a>
+        {user.role === "admin" && <>
+          <button onClick={() => exportResults("csv")} disabled={Boolean(exporting)} style={exportLinkStyle}><Download size={14} />{exporting === "csv" ? "Đang tải…" : "CSV"}</button>
+          <button onClick={() => exportResults("json")} disabled={Boolean(exporting)} style={exportLinkStyle}><Download size={14} />{exporting === "json" ? "Đang tải…" : "JSON"}</button>
+        </>}
       </footer>
       {error && <div style={{ color: C.red, padding: "0 22px 10px", background: C.surface, fontSize: 12 }}>{error}</div>}
     </section>
+    {showAccounts && <AccountManager onClose={() => setShowAccounts(false)} />}
   </main>;
+}
+
+function LoginPage({ onAuthenticated }) {
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  async function submit(event) {
+    event.preventDefault();
+    setSubmitting(true);
+    setError("");
+    try {
+      onAuthenticated(await login(username, password));
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return <main style={loginPageStyle}>
+    <style>{FONTS}</style>
+    <form onSubmit={submit} style={loginCardStyle}>
+      <div style={loginIconStyle}><ShieldCheck size={28} /></div>
+      <h1 style={{ margin: "16px 0 6px", fontSize: 22 }}>Đăng nhập hệ thống xác minh</h1>
+      <p style={{ margin: "0 0 22px", color: C.inkMuted, fontSize: 13 }}>Dữ liệu bệnh nhân chỉ hiển thị cho tài khoản đã được quản trị viên cấp.</p>
+      <label style={loginLabelStyle}>Tên đăng nhập<input autoFocus autoComplete="username" value={username} onChange={(event) => setUsername(event.target.value)} required style={loginInputStyle} /></label>
+      <label style={loginLabelStyle}>Mật khẩu<input type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} required style={loginInputStyle} /></label>
+      {error && <div role="alert" style={{ color: C.red, fontSize: 12 }}>{error}</div>}
+      <button type="submit" disabled={submitting} style={loginButtonStyle}>{submitting ? "Đang đăng nhập…" : "Đăng nhập"}</button>
+    </form>
+  </main>;
+}
+
+function AccountManager({ onClose }) {
+  const [users, setUsers] = useState([]);
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [role, setRole] = useState("reviewer");
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    fetchUsers().then(setUsers).catch((requestError) => setError(requestError.message));
+  }, []);
+
+  async function submit(event) {
+    event.preventDefault();
+    setSaving(true);
+    setError("");
+    try {
+      const created = await createAccount({ username, password, role });
+      setUsers((current) => [...current, created].sort((a, b) => a.username.localeCompare(b.username, "vi")));
+      setUsername("");
+      setPassword("");
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return <div style={modalBackdropStyle} onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+    <section role="dialog" aria-modal="true" aria-label="Quản lý tài khoản" style={accountModalStyle}>
+      <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}><div><h2 style={{ margin: 0, fontSize: 18 }}>Quản lý tài khoản</h2><div style={{ color: C.inkMuted, fontSize: 12, marginTop: 4 }}>Chỉ quản trị viên truy cập được khu vực này.</div></div><button onClick={onClose} style={closeButtonStyle}><X size={18} /></button></header>
+      <form onSubmit={submit} style={{ display: "grid", gridTemplateColumns: "1fr 1fr 150px auto", gap: 9, margin: "20px 0" }}>
+        <input value={username} onChange={(event) => setUsername(event.target.value)} placeholder="Tên đăng nhập" minLength={3} required style={loginInputStyle} />
+        <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Mật khẩu (ít nhất 8 ký tự)" minLength={8} required style={loginInputStyle} />
+        <select value={role} onChange={(event) => setRole(event.target.value)} style={loginInputStyle}><option value="reviewer">Người đánh giá</option><option value="admin">Quản trị viên</option></select>
+        <button type="submit" disabled={saving} style={createButtonStyle}><UserPlus size={15} />{saving ? "Đang tạo…" : "Tạo"}</button>
+      </form>
+      {error && <div role="alert" style={{ color: C.red, fontSize: 12, marginBottom: 10 }}>{error}</div>}
+      <div style={{ border: `1px solid ${C.border}`, borderRadius: 8, overflow: "hidden" }}>
+        {users.map((item) => <div key={item.username} style={{ display: "grid", gridTemplateColumns: "1fr 150px 180px", gap: 10, padding: "10px 12px", borderBottom: `1px solid ${C.border}`, fontSize: 12 }}><strong>{item.username}</strong><span>{item.role === "admin" ? "Quản trị viên" : "Người đánh giá"}</span><span style={{ color: C.inkFaint }}>{new Date(item.created_at).toLocaleString("vi-VN")}</span></div>)}
+      </div>
+    </section>
+  </div>;
 }
 
 function SimilarityEvidence({ evidence }) {
   if (!evidence) return <div style={evidenceBarStyle}>Đang xác định các điểm trùng quan sát được…</div>;
   const groups = [
     ["ICD chính chung", evidence.shared_primary_icd_groups, "#DFF3EF", "#146B60"],
-    ["Cụm EHR chung", evidence.ehr_phrases?.length ? evidence.ehr_phrases : evidence.ehr_keywords, "#E8EFF8", "#24577B"],
+    ["Cụm EHR trùng khớp", evidence.ehr_exact_phrases, "#FFE066", "#6B4E00"],
+    ["Cụm EHR gần giống", evidence.ehr_fuzzy_phrases, "#FFF7DA", "#8A6D1A"],
     ["Xét nghiệm chung", evidence.shared_labs, "#F3ECFA", "#65428A"],
     ["Bất thường chung", evidence.shared_abnormal_labs, "#FCE9E5", C.red],
     ["Modality chung", evidence.shared_modalities, "#FFF1D9", "#8A5B10"],
@@ -239,15 +360,24 @@ function AlignedComparison({ tab, evidence, queryId, candidateId }) {
     return <section style={alignedSectionStyle}>
       {rows.length ? <table style={alignedTableStyle}>
         <thead><tr><th style={{ ...thStyle, width: 190 }}>Trường EHR</th><th style={thStyle}>Query · {queryId}</th><th style={thStyle}>Bệnh nhân tương tự · {candidateId}</th></tr></thead>
-        <tbody>{rows.map((row, index) => <tr key={`${row.query_title}-${index}`} style={{ borderTop: `1px solid ${C.border}`, verticalAlign: "top" }}>
-          <td style={{ ...tdStyle, fontWeight: 700 }}><div>{row.query_title}</div><div style={{ marginTop: 5 }}>{[...(row.phrases || []), ...(row.terms || [])].slice(0, 4).map((value) => <span key={value} style={{ ...evidenceChipStyle, margin: "0 3px 3px 0", background: "#FFF0A8", color: C.ink }}>{value}</span>)}</div></td>
-          <td style={{ ...tdStyle, lineHeight: 1.55 }}><HighlightedText value={row.query_value} terms={[...(row.phrases || []), ...(row.terms || [])]} /></td>
-          <td style={{ ...tdStyle, lineHeight: 1.55 }}><HighlightedText value={row.candidate_value} terms={[...(row.phrases || []), ...(row.terms || [])]} /></td>
-        </tr>)}</tbody>
+        <tbody>{rows.map((row, index) => {
+          const hasExact = (row.exact || []).length > 0;
+          const fuzzyForRow = hasExact ? [] : (row.fuzzy || []); // ẩn fuzzy nếu đã có exact
+          return <tr key={`${row.query_title}-${index}`} style={{ borderTop: `1px solid ${C.border}`, verticalAlign: "top" }}>
+            <td style={{ ...tdStyle, fontWeight: 700 }}>
+              <div>{row.query_title}</div>
+              <div style={{ marginTop: 5 }}>
+                {(row.exact || []).slice(0, 3).map((value) => <span key={`exact-${value}`} style={{ ...evidenceChipStyle, margin: "0 3px 3px 0", background: "#FFE066", color: C.ink }}>{value}</span>)}
+                {fuzzyForRow.slice(0, 3).map((m) => <span key={`fuzzy-${m.query}`} style={{ ...evidenceChipStyle, margin: "0 3px 3px 0", background: "white", color: "#8A6D1A", border: "1px dashed #C9A227" }}>{m.query} ≈ {m.candidate}</span>)}
+              </div>
+            </td>
+            <td style={{ ...tdStyle, lineHeight: 1.55 }}><HighlightedText value={row.query_value} exactTerms={row.exact} fuzzyTerms={fuzzyForRow.map((m) => m.query)} /></td>
+            <td style={{ ...tdStyle, lineHeight: 1.55 }}><HighlightedText value={row.candidate_value} exactTerms={row.exact} fuzzyTerms={fuzzyForRow.map((m) => m.candidate)} /></td>
+          </tr>;
+        })}</tbody>
       </table> : <Empty label="Không có nội dung EHR trùng để xếp hàng đối chiếu" />}
     </section>;
   }
-
   const rows = evidence.shared_lab_results || [];
   return <section style={alignedSectionStyle}>
     {rows.length ? <table style={alignedTableStyle}>
@@ -265,6 +395,14 @@ function PatientPanel({ title, patient, tab, evidence, similarOnly, side }) {
   const [recordId, setRecordId] = useState(patient.records[0]?.id || "");
   useEffect(() => setRecordId(patient.records[0]?.id || ""), [patient.id]);
   const record = patient.records.find((item) => item.id === recordId) || patient.records[0];
+
+  const matches = evidence?.ehr_matches || [];
+  const exactTerms = matches.flatMap((match) => match.exact || []);
+  // Chỉ lấy fuzzy từ field CHƯA có exact match nào — tránh nhiễu khi field đã đủ bằng chứng chắc chắn.
+  const fuzzyTerms = matches
+    .filter((match) => !(match.exact || []).length)
+    .flatMap((match) => (match.fuzzy || []).map((m) => (side === "query" ? m.query : m.candidate)));
+
   return <article style={{ background: C.bg, minWidth: 0, overflowY: "auto", padding: 18 }}>
     <h2 style={{ fontSize: 14, margin: 0 }}>{title}</h2>
     <div style={{ color: C.inkMuted, fontSize: 12, margin: "4px 0 13px" }}>{patient.id} · {patient.age} tuổi · {patient.gender}</div>
@@ -273,18 +411,24 @@ function PatientPanel({ title, patient, tab, evidence, similarOnly, side }) {
         {patient.records.map((item) => <option key={item.id} value={item.id}>{item.label} · {item.date}</option>)}
       </select>
     </label>
-    {tab === "ehr" && <Ehr ehr={record.ehr} highlightTerms={[...(evidence?.ehr_phrases || []), ...(evidence?.ehr_keywords || [])]} matchedTitles={(evidence?.ehr_matches || []).map((match) => side === "query" ? match.query_title : match.candidate_title)} similarOnly={similarOnly} />}
+    {tab === "ehr" && <Ehr
+      ehr={record.ehr}
+      exactTerms={exactTerms}
+      fuzzyTerms={fuzzyTerms}
+      matchedTitles={matches.map((match) => (side === "query" ? match.query_title : match.candidate_title))}
+      similarOnly={similarOnly}
+    />}
     {tab === "labs" && <Labs labs={record.labs} sharedLabs={evidence?.shared_labs || []} similarOnly={similarOnly} />}
     {["XQ", "CT", "MRI"].includes(tab) && <Imaging modality={tab} patient={patient} studies={record.studies[tab]} shared={evidence?.shared_modalities?.includes(tab)} />}
   </article>;
 }
 
-function Ehr({ ehr, highlightTerms, matchedTitles, similarOnly }) {
+function Ehr({ ehr, exactTerms, fuzzyTerms, matchedTitles, similarOnly }) {
   const matched = new Set(matchedTitles.map(normalizeText));
   const details = similarOnly ? ehr.details.filter(([title]) => !isEhrMetadata(title) && matched.has(normalizeText(title))) : ehr.details;
   return <div style={{ marginTop: 18, display: "grid", gap: 10 }}>
     {details.length
-      ? details.map(([title, value]) => <Card key={title} title={title}><HighlightedText value={value} terms={highlightTerms} /></Card>)
+      ? details.map(([title, value]) => <Card key={title} title={title}><HighlightedText value={value} exactTerms={exactTerms} fuzzyTerms={fuzzyTerms} /></Card>)
       : <Empty label={similarOnly ? "Không tìm thấy nội dung EHR lâm sàng chung" : "Không có dữ liệu EHR"} />}
   </div>;
 }
@@ -351,25 +495,38 @@ function Imaging({ modality, patient, studies, shared }) {
   </div>;
 }
 
-function HighlightedText({ value, terms }) {
-  const text = String(value ?? "");
-  const usefulTerms = [...new Set(terms.filter(Boolean))].sort((left, right) => right.length - left.length);
-  if (!usefulTerms.length) return text;
-  const pattern = new RegExp(`(${usefulTerms.map(escapeRegExp).join("|")})`, "giu");
-  return text.split(pattern).map((part, index) => (
-    usefulTerms.some((term) => normalizeText(term) === normalizeText(part))
-      ? <mark key={`${part}-${index}`} style={{ background: "#FFF0A8", color: "inherit", padding: "0 1px", borderRadius: 2 }}>{part}</mark>
-      : part
-  ));
+function buildFlexiblePattern(terms) {
+  const escaped = terms.map((term) =>
+    term.split(" ").map(escapeRegExp).join("[^\\p{L}\\p{N}]+") // cho phép bất kỳ ký tự không phải chữ/số xen giữa
+  );
+  return new RegExp(`(${escaped.join("|")})`, "giu");
 }
 
-function containsSimilarTerm(value, terms) {
-  const normalizedValue = normalizeText(value);
-  return terms.some((term) => normalizeText(term).length >= 4 && normalizedValue.includes(normalizeText(term)));
+function normalizeForCompare(value) {
+  return normalizeText(value).replace(/[^\p{L}\p{N}]+/gu, " ").trim();
 }
+
+function HighlightedText({ value, exactTerms = [], fuzzyTerms = [] }) {
+  const text = String(value ?? "");
+  const exactSet = new Set(exactTerms.filter(Boolean).map(normalizeText));
+  const fuzzySet = new Set(fuzzyTerms.filter(Boolean).map(normalizeText).filter((t) => !exactSet.has(t)));
+  const allTerms = [...new Set([...exactTerms, ...fuzzyTerms].filter(Boolean))]
+    .sort((left, right) => right.length - left.length);
+  if (!allTerms.length) return text;
+  const pattern = buildFlexiblePattern(allTerms);
+  return text.split(pattern).map((part, index) => {
+    const normalizedPart = normalizeForCompare(part);
+    if (exactSet.has(normalizedPart)) return <mark key={`${part}-${index}`} style={exactMarkStyle}>{part}</mark>;
+    if (fuzzySet.has(normalizedPart)) return <mark key={`${part}-${index}`} style={fuzzyMarkStyle}>{part}</mark>;
+    return part;
+  });
+}
+
+const exactMarkStyle = { background: "#FFE066", color: "inherit", padding: "0 1px", borderRadius: 2 };
+const fuzzyMarkStyle = { background: "transparent", color: "inherit", padding: "0 1px", borderRadius: 2, border: "1px dashed #C9A227", borderBottom: "2px solid #C9A227" };
 
 function isEhrMetadata(title) {
-  return new Set(["số bệnh án", "số vào viện", "mã bệnh án", "ngày vào viện", "ngày ra viện", "khoa điều trị", "kết quả điều trị"]).has(normalizeText(title));
+  return new Set(["số bệnh án", "số vào viện", "mã bệnh án", "ngày vào viện", "ngày ra viện"]).has(normalizeText(title));
 }
 
 function normalizeText(value) { return String(value || "").normalize("NFC").toLocaleLowerCase("vi").trim(); }
@@ -385,7 +542,7 @@ const querySelectStyle = { display: "block", marginTop: 5, width: "100%", paddin
 const sidebarIcdStyle = { display: "block", width: "fit-content", marginTop: 3, padding: "1px 5px", borderRadius: 4, background: "#193441", color: "#8FE0D4", fontSize: 9 };
 const sidebarItemStyle = (selected) => ({ display: "flex", alignItems: "center", textAlign: "left", width: "100%", border: 0, borderLeft: selected ? "3px solid #8FE0D4" : "3px solid transparent", borderRadius: 7, marginBottom: 3, padding: "9px 8px", background: selected ? C.navySoft : "transparent", color: "white", cursor: "pointer" });
 const tabStyle = (selected) => ({ border: 0, borderBottom: selected ? `2px solid ${C.teal}` : "2px solid transparent", padding: "10px 14px", background: "none", cursor: "pointer", color: selected ? C.ink : C.inkFaint, fontWeight: 600, display: "flex", alignItems: "center", gap: 6 });
-const exportLinkStyle = { display: "inline-flex", alignItems: "center", gap: 5, padding: "9px 10px", borderRadius: 7, border: `1px solid ${C.border}`, color: C.inkMuted, textDecoration: "none", fontSize: 12, fontWeight: 600, background: "white" };
+const exportLinkStyle = { display: "inline-flex", alignItems: "center", gap: 5, padding: "9px 10px", borderRadius: 7, border: `1px solid ${C.border}`, color: C.inkMuted, fontSize: 12, fontWeight: 600, background: "white", cursor: "pointer" };
 const evidenceBarStyle = { minHeight: 36, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", padding: "7px 22px", background: "#FBFCFD", borderBottom: `1px solid ${C.border}` };
 const focusPanelStyle = { display: "flex", alignItems: "flex-start", gap: 9, flexWrap: "wrap", padding: "9px 22px", background: "#F4FBF9", borderBottom: `1px solid ${C.border}`, color: C.inkMuted, fontSize: 11 };
 const alignedSectionStyle = { flex: 1, overflow: "auto", padding: 18, background: C.bg };
@@ -393,3 +550,16 @@ const alignedTableStyle = { width: "100%", minWidth: 760, borderCollapse: "colla
 const evidenceChipStyle = { display: "inline-block", padding: "2px 6px", borderRadius: 999, background: "#DFF3EF", color: "#146B60", fontSize: 10, fontWeight: 700 };
 const reviewColor = (status) => ({ very_similar: C.teal, similar: "#24618A", uncertain: C.amber, dissimilar: "#9A5A1A", very_dissimilar: C.red }[status] || C.inkFaint);
 const similarOnlyButtonStyle = (active, disabled) => ({ marginLeft: "auto", border: `1px solid ${active ? C.teal : C.border}`, borderRadius: 7, padding: "7px 10px", background: active ? C.tealSoft : "white", color: active ? "#0B6C62" : C.inkMuted, fontSize: 12, fontWeight: 700, cursor: disabled ? "not-allowed" : "pointer", opacity: disabled ? 0.5 : 1, display: "inline-flex", alignItems: "center", gap: 5 });
+const accountSummaryStyle = { marginTop: 14, paddingTop: 12, borderTop: "1px solid #2a3d4c", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, color: "#8da0ac", fontSize: 10 };
+const darkIconButtonStyle = { border: "1px solid #2a3d4c", borderRadius: 6, padding: 7, display: "grid", placeItems: "center", background: "#0f1a22", color: "white", cursor: "pointer" };
+const manageAccountsButtonStyle = { marginTop: 8, width: "100%", border: "1px solid #2a3d4c", borderRadius: 6, padding: "8px 9px", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, background: "#193441", color: "#8FE0D4", cursor: "pointer", fontSize: 11, fontWeight: 700 };
+const loginPageStyle = { minHeight: "100vh", display: "grid", placeItems: "center", padding: 20, background: "linear-gradient(135deg, #0b1720, #16313d)", color: C.ink, fontFamily: "'Inter', sans-serif" };
+const loginCardStyle = { width: "min(420px, 100%)", boxSizing: "border-box", padding: 32, borderRadius: 14, background: "white", boxShadow: "0 20px 70px rgba(0,0,0,.28)", display: "grid", gap: 14 };
+const loginIconStyle = { width: 52, height: 52, borderRadius: 12, display: "grid", placeItems: "center", background: C.tealSoft, color: C.teal };
+const loginLabelStyle = { display: "grid", gap: 6, color: C.inkMuted, fontSize: 12, fontWeight: 700 };
+const loginInputStyle = { boxSizing: "border-box", width: "100%", minWidth: 0, padding: "10px 11px", border: `1px solid ${C.border}`, borderRadius: 7, background: "white", color: C.ink, outlineColor: C.teal };
+const loginButtonStyle = { marginTop: 4, padding: "11px 14px", border: 0, borderRadius: 7, background: C.teal, color: "white", fontWeight: 700, cursor: "pointer" };
+const modalBackdropStyle = { position: "fixed", inset: 0, zIndex: 20, display: "grid", placeItems: "center", padding: 24, background: "rgba(5, 15, 22, .7)" };
+const accountModalStyle = { width: "min(850px, 100%)", maxHeight: "85vh", overflow: "auto", boxSizing: "border-box", padding: 24, borderRadius: 12, background: "white", boxShadow: "0 24px 80px rgba(0,0,0,.35)" };
+const closeButtonStyle = { border: `1px solid ${C.border}`, borderRadius: 7, padding: 7, background: "white", color: C.inkMuted, display: "grid", placeItems: "center", cursor: "pointer" };
+const createButtonStyle = { border: 0, borderRadius: 7, padding: "9px 12px", background: C.teal, color: "white", fontWeight: 700, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, cursor: "pointer" };

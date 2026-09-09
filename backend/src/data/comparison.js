@@ -3,35 +3,45 @@ import { fileURLToPath } from "url";
 import { getPatient } from "./rawPatients.js";
 import { getVerification, setVerification } from "./store.js";
 
-const RETRIEVAL_FILE = fileURLToPath(new URL("./retrieval.json", import.meta.url));
+const RETRIEVAL_FILE = process.env.RETRIEVAL_FILE
+  || fileURLToPath(new URL("./retrieval.json", import.meta.url));
 const TOPK_FILE = process.env.TOPK_FILE || "";
 const DEFAULT_QUERY_PATIENT_ID = process.env.QUERY_PATIENT_ID || "";
+const QUERY_LIMIT = 5;
+const CANDIDATE_LIMIT = 5;
 const STOP_WORDS = new Set([
   "bệnh", "nhân", "điều", "trị", "chẩn", "đoán", "không", "có", "của",
   "cho", "và", "với", "trong", "ngoài", "được", "theo", "sau", "trước",
-  "tại", "này", "đến", "vào", "ra", "viện", "khoa", "ngày", "tháng",
+  "tại", "này", "đến", "vào", "ra", "viện", "ngày", "tháng",
   "năm", "một", "các", "những", "hiện", "tiền", "sử", "tình", "trạng",
   "the", "patient", "normal", "âm", "tính", "dương", "ghi", "nhận",
-  "bình", "thường", "cấp", "cứu", "khám", "kết", "quả", "lần",
+  "bình", "thường", "khám", "kết", "quả", "lần",
 ]);
+
 const EHR_METADATA_LABELS = new Set([
   "số bệnh án", "số vào viện", "mã bệnh án", "ngày vào viện", "ngày ra viện",
-  "khoa điều trị", "kết quả điều trị",
 ]);
+
 const EHR_BOILERPLATE_LABELS = new Set([
-  "khám tổn thương", "diễn biến lâm sàng", "hướng điều trị", "phương pháp điều trị",
+  // "khám tổn thương", "diễn biến lâm sàng", "hướng điều trị", "phương pháp điều trị",
 ]);
 
 let topkCache = null;
 
 function readQuerySelection() {
+  let config;
   try {
-    const config = JSON.parse(fs.readFileSync(RETRIEVAL_FILE, "utf8"));
-    if (!Array.isArray(config?.query_patient_ids)) return [];
-    return [...new Set(config.query_patient_ids.map((id) => String(id).trim()).filter(Boolean))];
-  } catch {
-    return [];
+    config = JSON.parse(fs.readFileSync(RETRIEVAL_FILE, "utf8"));
+  } catch (error) {
+    throw new Error(`Không đọc được cấu hình query ${RETRIEVAL_FILE}: ${error.message}`);
   }
+  const selected = Array.isArray(config?.query_patient_ids)
+    ? [...new Set(config.query_patient_ids.map((id) => String(id).trim()).filter(Boolean))]
+    : [];
+  if (selected.length !== QUERY_LIMIT) {
+    throw new Error(`retrieval.json phải chứa đúng ${QUERY_LIMIT} query_patient_ids duy nhất.`);
+  }
+  return selected;
 }
 
 function parseCsvLine(line) {
@@ -59,7 +69,9 @@ function parseCsvLine(line) {
 }
 
 function readTopkIndex() {
-  if (!TOPK_FILE || !fs.statSync(TOPK_FILE, { throwIfNoEntry: false })?.isFile()) return null;
+  if (!TOPK_FILE || !fs.statSync(TOPK_FILE, { throwIfNoEntry: false })?.isFile()) {
+    throw new Error("TOPK_FILE phải trỏ tới CSV Top-20 hợp lệ; ứng dụng không dùng dữ liệu retrieval dự phòng.");
+  }
   const stat = fs.statSync(TOPK_FILE);
   if (topkCache?.mtimeMs === stat.mtimeMs && topkCache?.size === stat.size) return topkCache.value;
   const lines = fs.readFileSync(TOPK_FILE, "utf8").replace(/^\uFEFF/, "").trim().split(/\r?\n/);
@@ -95,16 +107,30 @@ function readTopkIndex() {
     if (!byQuery.has(queryId)) byQuery.set(queryId, []);
     byQuery.get(queryId).push(candidate);
   }
-  for (const candidates of byQuery.values()) candidates.sort((left, right) => left.rank - right.rank);
+  for (const [queryId, candidates] of byQuery.entries()) {
+    const topFive = candidates
+      .sort((left, right) => left.rank - right.rank)
+      .filter((candidate) => candidate.rank >= 1 && candidate.rank <= CANDIDATE_LIMIT)
+      .slice(0, CANDIDATE_LIMIT);
+    byQuery.set(queryId, topFive);
+  }
   const selectedIds = readQuerySelection();
   if (selectedIds.length) {
     const missing = selectedIds.filter((id) => !byQuery.has(id));
     if (missing.length) throw new Error(`Các query không có trong Top-K CSV: ${missing.join(", ")}`);
+    const incomplete = selectedIds.filter((id) => {
+      const ranks = byQuery.get(id).map((candidate) => candidate.rank);
+      return ranks.length !== CANDIDATE_LIMIT
+        || ranks.some((rank, index) => rank !== index + 1);
+    });
+    if (incomplete.length) {
+      throw new Error(`Các query không có đủ rank 1-${CANDIDATE_LIMIT} trong CSV: ${incomplete.join(", ")}`);
+    }
     for (const patientId of [...byQuery.keys()]) {
       if (!selectedIds.includes(patientId)) byQuery.delete(patientId);
     }
   }
-  const queryOrder = selectedIds.length ? selectedIds : [...byQuery.keys()].sort((left, right) => left.localeCompare(right));
+  const queryOrder = selectedIds;
   const queries = queryOrder.map((patientId) => {
     const candidates = byQuery.get(patientId);
     return {
@@ -118,48 +144,16 @@ function readTopkIndex() {
   return value;
 }
 
-function readStaticRetrieval() {
-  let retrieval;
-  try {
-    retrieval = JSON.parse(fs.readFileSync(RETRIEVAL_FILE, "utf8"));
-  } catch (error) {
-    throw new Error(`Không đọc được retrieval.json: ${error.message}`);
-  }
-  if (!retrieval?.patient_id || !Array.isArray(retrieval.similar_patients)) {
-    throw new Error("retrieval.json phải có patient_id và mảng similar_patients.");
-  }
-  return {
-    patientId: String(retrieval.patient_id),
-    candidates: retrieval.similar_patients.map((item, index) => ({
-      rank: Number.isInteger(item.rank) ? item.rank : index + 1,
-      patient_id: String(item.patient_id || ""),
-      similarity_score: Number(item.similarity_score),
-      shares_primary_icd_group: false,
-      shared_primary_icd_groups: [],
-    })).filter((item) => item.patient_id && Number.isFinite(item.similarity_score)),
-    source: RETRIEVAL_FILE,
-  };
-}
-
 function resolveContext(queryPatientId) {
   const topk = readTopkIndex();
-  if (topk) {
-    const requested = String(queryPatientId || DEFAULT_QUERY_PATIENT_ID || topk.queries[0]?.patient_id || "");
-    const candidates = topk.byQuery.get(requested);
-    if (!candidates) {
-      const error = new Error(`Không có Top-20 cho bệnh nhân query ${requested}.`);
-      error.status = 404;
-      throw error;
-    }
-    return { patientId: requested, candidates, source: topk.source };
-  }
-  const fallback = readStaticRetrieval();
-  if (queryPatientId && String(queryPatientId) !== fallback.patientId) {
-    const error = new Error(`Demo tĩnh chỉ có query ${fallback.patientId}.`);
+  const requested = String(queryPatientId || DEFAULT_QUERY_PATIENT_ID || topk.queries[0]?.patient_id || "");
+  const candidates = topk.byQuery.get(requested);
+  if (!candidates) {
+    const error = new Error(`Không có Top-5 cho bệnh nhân query ${requested}.`);
     error.status = 404;
     throw error;
   }
-  return fallback;
+  return { patientId: requested, candidates, source: topk.source };
 }
 
 function loadContext(queryPatientId) {
@@ -177,9 +171,107 @@ function normalize(value) {
   return String(value || "").normalize("NFC").toLocaleLowerCase("vi").trim();
 }
 
-function clinicalTokens(value) {
-  return (normalize(value).match(/[\p{L}\p{N}]+/gu) || [])
-    .filter((token) => token.length >= 2 && !STOP_WORDS.has(token));
+// Cắt tokens theo ranh giới câu (dấu . , ; và xuống dòng) để n-gram không băng qua câu khác nhau.
+// Cần tokenize kèm theo vị trí ký tự ngắt câu trong text gốc, trước khi bỏ dấu câu đi.
+function clauses(rawValue) {
+  return normalize(rawValue)
+    .split(/[.,;\n]+/)
+    .map((clause) => (clause.match(/[\p{L}\p{N}]+/gu) || [])
+      .filter((token) => token.length >= 2 && !STOP_WORDS.has(token)))
+    .filter((tokens) => tokens.length >= 2);
+}
+
+function exactPhraseSet(rawValue) {
+  const phrases = new Set();
+  for (const clause of clauses(rawValue)) {
+    for (const width of [8, 7, 6, 5, 4, 3, 2]) {
+      for (let index = 0; index <= clause.length - width; index += 1) {
+        phrases.add(clause.slice(index, index + width).join(" "));
+      }
+    }
+  }
+  return phrases;
+}
+
+function dedupeContained(phrases) {
+  const sorted = [...phrases].sort((a, b) => b.length - a.length); // dài trước
+  const kept = [];
+  for (const phrase of sorted) {
+    const isContained = kept.some((longer) => longer.includes(phrase));
+    if (!isContained) kept.push(phrase);
+  }
+  return kept;
+}
+
+// Levenshtein trên mảng token (không phải ký tự) — 1 "edit" = thêm/xóa/thay nguyên 1 từ.
+function tokenLevelEditDistance(a, b) {
+  const dp = Array.from({ length: a.length + 1 }, (_, i) =>
+    Array.from({ length: b.length + 1 }, (_, j) => (i === 0 ? j : j === 0 ? i : 0)));
+  for (let i = 1; i <= a.length; i += 1) {
+    for (let j = 1; j <= b.length; j += 1) {
+      dp[i][j] = a[i - 1] === b[j - 1]
+        ? dp[i - 1][j - 1]
+        : 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
+    }
+  }
+  return dp[a.length][b.length];
+}
+
+function fuzzyPhraseMatch(queryPhrases, candidatePhrases) {
+  const results = [];
+  const usedCandidates = new Set();
+  for (const qp of queryPhrases) {
+    let best = null;
+    for (const cp of candidatePhrases) {
+      if (usedCandidates.has(cp)) continue;
+      const qTokens = qp.split(" ");
+      const cTokens = cp.split(" ");
+      if (Math.abs(qTokens.length - cTokens.length) > 1) continue;
+      const maxLen = Math.max(qTokens.length, cTokens.length);
+      if (maxLen > 6) continue;
+      const dist = tokenLevelEditDistance(qTokens, cTokens);
+      if (dist > 1) continue;
+      if (!best || dist < best.editDistance) best = { query: qp, candidate: cp, editDistance: dist };
+    }
+    if (best) {
+      results.push(best);
+      usedCandidates.add(best.candidate);
+    }
+  }
+  return results;
+}
+
+function scoreOf(exact, fuzzy) {
+  // Cụm dài + exact được ưu tiên hơn fuzzy; fuzzy bị trừ điểm theo editDistance.
+  const exactScore = exact.reduce((total, phrase) => total + phrase.split(" ").length * 3, 0);
+  const fuzzyScore = fuzzy.reduce((total, m) => total + Math.max(1, m.query.split(" ").length * 2 - m.editDistance), 0);
+  return exactScore + fuzzyScore;
+}
+
+function fieldOverlap(queryField, candidateField) {
+  if (normalize(queryField.title) !== normalize(candidateField.title)) return null;
+
+  const qExact = exactPhraseSet(queryField.value);
+  const cExact = exactPhraseSet(candidateField.value);
+  const rawExact = [...qExact].filter((phrase) => cExact.has(phrase));
+  const exact = dedupeContained(rawExact)
+    .sort((left, right) => right.split(" ").length - left.split(" ").length);
+
+  const remainingQ = [...qExact].filter((phrase) => !rawExact.includes(phrase));
+  const remainingC = [...cExact].filter((phrase) => !rawExact.includes(phrase));
+  const fuzzy = fuzzyPhraseMatch(remainingQ, remainingC);
+
+  if (!exact.length && !fuzzy.length) return null;
+
+  return {
+    query_title: queryField.title,
+    candidate_title: candidateField.title,
+    query_value: queryField.value,
+    candidate_value: candidateField.value,
+    exact: exact.slice(0, 10),
+    fuzzy: fuzzy.slice(0, 10),
+    score: scoreOf(exact, fuzzy),
+  };
 }
 
 function clinicalFields(patient) {
@@ -188,42 +280,10 @@ function clinicalFields(patient) {
     for (const [title, value] of record.ehr?.details || []) {
       const normalizedTitle = normalize(title);
       if (EHR_METADATA_LABELS.has(normalizedTitle) || EHR_BOILERPLATE_LABELS.has(normalizedTitle)) continue;
-      const tokens = clinicalTokens(value);
-      if (tokens.length) fields.push({ title, value: String(value), tokens });
+      if (String(value || "").trim()) fields.push({ title, value: String(value) });
     }
   }
   return fields;
-}
-
-function phraseSet(tokens) {
-  const phrases = new Set();
-  for (const width of [3, 2]) {
-    for (let index = 0; index <= tokens.length - width; index += 1) {
-      phrases.add(tokens.slice(index, index + width).join(" "));
-    }
-  }
-  return phrases;
-}
-
-function fieldOverlap(queryField, candidateField) {
-  if (normalize(queryField.title) !== normalize(candidateField.title)) return null;
-  const queryTerms = new Set(queryField.tokens);
-  const candidateTerms = new Set(candidateField.tokens);
-  const terms = [...queryTerms].filter((term) => candidateTerms.has(term))
-    .sort((left, right) => right.length - left.length || left.localeCompare(right));
-  const candidatePhrases = phraseSet(candidateField.tokens);
-  const phrases = [...phraseSet(queryField.tokens)].filter((phrase) => candidatePhrases.has(phrase))
-    .sort((left, right) => right.length - left.length || left.localeCompare(right));
-  if (!phrases.length && terms.length < 2) return null;
-  return {
-    query_title: queryField.title,
-    candidate_title: candidateField.title,
-    query_value: queryField.value,
-    candidate_value: candidateField.value,
-    terms: terms.slice(0, 8),
-    phrases: phrases.slice(0, 4),
-    score: 3 + terms.length + phrases.reduce((total, phrase) => total + phrase.split(" ").length * 3, 0),
-  };
 }
 
 function ehrMatches(query, candidate) {
@@ -277,8 +337,12 @@ function patientModalities(patient) {
 
 export function buildSimilarityEvidence(query, candidate, retrievalCandidate) {
   const matchedEhr = ehrMatches(query, candidate);
-  const ehrKeywords = [...new Set(matchedEhr.flatMap((match) => match.terms))].slice(0, 16);
-  const ehrPhrases = [...new Set(matchedEhr.flatMap((match) => match.phrases))].slice(0, 12);
+  const ehrExactPhrases = [...new Set(matchedEhr.flatMap((match) => match.exact))].slice(0, 16);
+  const ehrFuzzyPhrases = [...new Set(
+    matchedEhr
+      .filter((match) => !(match.exact || []).length) // chỉ field chưa có exact
+      .flatMap((match) => match.fuzzy.map((m) => m.query))
+  )].slice(0, 16);
   const queryLabs = patientLabs(query);
   const candidateLabs = patientLabs(candidate);
   const sharedLabKeys = [...queryLabs.keys()].filter((name) => candidateLabs.has(name));
@@ -301,8 +365,8 @@ export function buildSimilarityEvidence(query, candidate, retrievalCandidate) {
     kind: "observable_overlap",
     disclaimer: "Các mục này là bằng chứng trùng quan sát được, không phải giải thích nhân quả cho điểm model.",
     shared_primary_icd_groups: retrievalCandidate.shared_primary_icd_groups || [],
-    ehr_keywords: ehrKeywords,
-    ehr_phrases: ehrPhrases,
+    ehr_exact_phrases: ehrExactPhrases,
+    ehr_fuzzy_phrases: ehrFuzzyPhrases,
     ehr_matches: matchedEhr,
     shared_labs: sharedLabs,
     shared_lab_results: sharedLabResults,
@@ -313,17 +377,9 @@ export function buildSimilarityEvidence(query, candidate, retrievalCandidate) {
 
 export function listComparisonQueries() {
   const topk = readTopkIndex();
-  if (topk) {
-    const defaultId = topk.byQuery.has(DEFAULT_QUERY_PATIENT_ID)
-      ? DEFAULT_QUERY_PATIENT_ID : topk.queries[0]?.patient_id;
-    return { default_query_patient_id: defaultId, source: topk.source, queries: topk.queries };
-  }
-  const fallback = readStaticRetrieval();
-  return {
-    default_query_patient_id: fallback.patientId,
-    source: fallback.source,
-    queries: [{ patient_id: fallback.patientId, split: "", candidate_count: fallback.candidates.length }],
-  };
+  const defaultId = topk.byQuery.has(DEFAULT_QUERY_PATIENT_ID)
+    ? DEFAULT_QUERY_PATIENT_ID : topk.queries[0]?.patient_id;
+  return { default_query_patient_id: defaultId, source: topk.source, queries: topk.queries };
 }
 
 export function getComparisonSession(queryPatientId) {

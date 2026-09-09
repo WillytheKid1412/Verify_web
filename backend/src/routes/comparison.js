@@ -6,6 +6,7 @@ import {
   listComparisonQueries,
   saveComparisonDecision,
 } from "../data/comparison.js";
+import { requireAdmin } from "../middleware/auth.js";
 
 const router = Router();
 const allowed = ["pending", "very_similar", "similar", "uncertain", "dissimilar", "very_dissimilar"];
@@ -22,7 +23,7 @@ function csvCell(value) {
   return `"${String(value ?? "").replaceAll('"', '""')}"`;
 }
 
-router.get("/export", (req, res, next) => {
+router.get("/export", requireAdmin, (req, res, next) => {
   try {
     const rows = getComparisonExport(req.query.query_patient_id);
     if (req.query.format === "csv") {
@@ -42,9 +43,11 @@ router.get("/:similarPatientId", (req, res) => {
 });
 
 router.post("/:similarPatientId/verify", (req, res) => {
-  const { status, note, reviewer, query_patient_id: queryPatientId } = req.body || {};
+  const { status, note, query_patient_id: queryPatientId } = req.body || {};
   if (!allowed.includes(status)) return res.status(400).json({ error: "Trạng thái không hợp lệ" });
-  const saved = saveComparisonDecision(queryPatientId, req.params.similarPatientId, { status, note, reviewer });
+  const saved = saveComparisonDecision(queryPatientId, req.params.similarPatientId, {
+    status, note, reviewer: req.user.username,
+  });
   if (!saved) return res.status(404).json({ error: "Không tìm thấy bệnh nhân tương tự" });
   res.json(saved);
 });
