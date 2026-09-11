@@ -212,7 +212,12 @@ function VerifyApp({ user, onLogout }) {
         </div>
         <nav style={{ marginTop: 14, display: "flex", gap: 4, flexWrap: "wrap" }}>
           {tabs.map(([id, label, Icon]) => <button key={id} onClick={() => setTab(id)} style={tabStyle(tab === id)}><Icon size={15} />{label}</button>)}
-          <button onClick={() => setShowSimilarOnly((value) => !value)} disabled={!candidate || !["ehr", "labs"].includes(tab)} style={similarOnlyButtonStyle(similarityFilterActive, !candidate || !["ehr", "labs"].includes(tab))}>
+          <button
+            onClick={() => setShowSimilarOnly((value) => !value)}
+            disabled={!candidate || !["ehr", "labs"].includes(tab)}
+            aria-pressed={similarityFilterActive}
+            style={similarOnlyButtonStyle(similarityFilterActive, !candidate || !["ehr", "labs"].includes(tab))}
+          >
             <Filter size={14} />{similarityFilterActive ? "Đang chỉ phần giống nhau" : "Chỉ phần giống nhau"}
           </button>
         </nav>
@@ -359,7 +364,7 @@ function AlignedComparison({ tab, evidence, queryId, candidateId }) {
     const rows = evidence.ehr_matches || [];
     return <section style={alignedSectionStyle}>
       {rows.length ? <table style={alignedTableStyle}>
-        <thead><tr><th style={{ ...thStyle, width: 190 }}>Trường EHR</th><th style={thStyle}>Query · {queryId}</th><th style={thStyle}>Bệnh nhân tương tự · {candidateId}</th></tr></thead>
+        <thead><tr><th style={{ ...thStyle, width: 190 }}>Trường EHR</th><th style={{ ...thStyle, ...alignedQueryHeaderStyle }}>Query · {queryId}</th><th style={{ ...thStyle, ...alignedCandidateHeaderStyle }}>Bệnh nhân tương tự · {candidateId}</th></tr></thead>
         <tbody>{rows.map((row, index) => {
           const hasExact = (row.exact || []).length > 0;
           const fuzzyForRow = hasExact ? [] : (row.fuzzy || []); // ẩn fuzzy nếu đã có exact
@@ -371,8 +376,8 @@ function AlignedComparison({ tab, evidence, queryId, candidateId }) {
                 {fuzzyForRow.slice(0, 3).map((m) => <span key={`fuzzy-${m.query}`} style={{ ...evidenceChipStyle, margin: "0 3px 3px 0", background: "white", color: "#8A6D1A", border: "1px dashed #C9A227" }}>{m.query} ≈ {m.candidate}</span>)}
               </div>
             </td>
-            <td style={{ ...tdStyle, lineHeight: 1.55 }}><HighlightedText value={row.query_value} exactTerms={row.exact} fuzzyTerms={fuzzyForRow.map((m) => m.query)} /></td>
-            <td style={{ ...tdStyle, lineHeight: 1.55 }}><HighlightedText value={row.candidate_value} exactTerms={row.exact} fuzzyTerms={fuzzyForRow.map((m) => m.candidate)} /></td>
+            <td style={{ ...tdStyle, ...alignedQueryCellStyle, lineHeight: 1.55 }}><HighlightedText value={row.query_value} exactTerms={row.exact} fuzzyTerms={fuzzyForRow.map((m) => m.query)} /></td>
+            <td style={{ ...tdStyle, ...alignedCandidateCellStyle, lineHeight: 1.55 }}><HighlightedText value={row.candidate_value} exactTerms={row.exact} fuzzyTerms={fuzzyForRow.map((m) => m.candidate)} /></td>
           </tr>;
         })}</tbody>
       </table> : <Empty label="Không có nội dung EHR trùng để xếp hàng đối chiếu" />}
@@ -381,8 +386,8 @@ function AlignedComparison({ tab, evidence, queryId, candidateId }) {
   const rows = evidence.shared_lab_results || [];
   return <section style={alignedSectionStyle}>
     {rows.length ? <table style={alignedTableStyle}>
-      <thead><tr><th style={{ ...thStyle, width: 240 }}>Chỉ số/cận lâm sàng</th><th style={thStyle}>Query · {queryId}</th><th style={thStyle}>Bệnh nhân tương tự · {candidateId}</th></tr></thead>
-      <tbody>{rows.map((row) => <tr key={row.name} style={{ borderTop: `1px solid ${C.border}`, verticalAlign: "top" }}><td style={{ ...tdStyle, fontWeight: 700 }}>{row.name}</td><td style={tdStyle}>{formatLabResults(row.query_results)}</td><td style={tdStyle}>{formatLabResults(row.candidate_results)}</td></tr>)}</tbody>
+      <thead><tr><th style={{ ...thStyle, width: 240 }}>Chỉ số/cận lâm sàng</th><th style={{ ...thStyle, ...alignedQueryHeaderStyle }}>Query · {queryId}</th><th style={{ ...thStyle, ...alignedCandidateHeaderStyle }}>Bệnh nhân tương tự · {candidateId}</th></tr></thead>
+      <tbody>{rows.map((row) => <tr key={row.name} style={{ borderTop: `1px solid ${C.border}`, verticalAlign: "top" }}><td style={{ ...tdStyle, fontWeight: 700 }}>{row.name}</td><td style={{ ...tdStyle, ...alignedQueryCellStyle }}>{formatLabResults(row.query_results)}</td><td style={{ ...tdStyle, ...alignedCandidateCellStyle }}>{formatLabResults(row.candidate_results)}</td></tr>)}</tbody>
     </table> : <Empty label="Không có chỉ số/cận lâm sàng trùng tên để xếp hàng đối chiếu" />}
   </section>;
 }
@@ -403,9 +408,13 @@ function PatientPanel({ title, patient, tab, evidence, similarOnly, side }) {
     .filter((match) => !(match.exact || []).length)
     .flatMap((match) => (match.fuzzy || []).map((m) => (side === "query" ? m.query : m.candidate)));
 
-  return <article style={{ background: C.bg, minWidth: 0, overflowY: "auto", padding: 18 }}>
-    <h2 style={{ fontSize: 14, margin: 0 }}>{title}</h2>
-    <div style={{ color: C.inkMuted, fontSize: 12, margin: "4px 0 13px" }}>{patient.id} · {patient.age} tuổi · {patient.gender}</div>
+  const isQuery = side === "query";
+  return <article style={patientPanelStyle(isQuery)}>
+    <div style={patientPanelHeaderStyle(isQuery)}>
+      <span style={patientPanelRoleStyle(isQuery)}>{isQuery ? "Hồ sơ query" : "Hồ sơ đối chiếu"}</span>
+      <h2 style={{ fontSize: 14, margin: "6px 0 0", color: isQuery ? QUERY_PANEL.accent : CANDIDATE_PANEL.accent }}>{title}</h2>
+      <div style={{ color: C.inkMuted, fontSize: 12, marginTop: 4 }}>{patient.id} · {patient.age} tuổi · {patient.gender}</div>
+    </div>
     <label style={labelStyle}>Bệnh án
       <select value={recordId} onChange={(event) => setRecordId(event.target.value)} style={selectStyle}>
         {patient.records.map((item) => <option key={item.id} value={item.id}>{item.label} · {item.date}</option>)}
@@ -547,9 +556,50 @@ const evidenceBarStyle = { minHeight: 36, display: "flex", alignItems: "center",
 const focusPanelStyle = { display: "flex", alignItems: "flex-start", gap: 9, flexWrap: "wrap", padding: "9px 22px", background: "#F4FBF9", borderBottom: `1px solid ${C.border}`, color: C.inkMuted, fontSize: 11 };
 const alignedSectionStyle = { flex: 1, overflow: "auto", padding: 18, background: C.bg };
 const alignedTableStyle = { width: "100%", minWidth: 760, borderCollapse: "collapse", background: "white", border: `1px solid ${C.border}`, borderRadius: 8, overflow: "hidden", fontSize: 12 };
+const QUERY_PANEL = { accent: "#2563A6", background: "#F2F7FD", header: "#E2EEFA", border: "#AFCBE7" };
+const CANDIDATE_PANEL = { accent: "#A35B08", background: "#FFF8ED", header: "#FCEACD", border: "#E7C38B" };
+const patientPanelStyle = (isQuery) => {
+  const palette = isQuery ? QUERY_PANEL : CANDIDATE_PANEL;
+  return {
+    background: palette.background,
+    minWidth: 0,
+    overflowY: "auto",
+    padding: 18,
+    borderTop: `4px solid ${palette.accent}`,
+    boxShadow: `inset 0 0 0 1px ${palette.border}`,
+  };
+};
+const patientPanelHeaderStyle = (isQuery) => {
+  const palette = isQuery ? QUERY_PANEL : CANDIDATE_PANEL;
+  return { margin: "-18px -18px 15px", padding: "14px 18px 13px", background: palette.header, borderBottom: `1px solid ${palette.border}` };
+};
+const patientPanelRoleStyle = (isQuery) => {
+  const palette = isQuery ? QUERY_PANEL : CANDIDATE_PANEL;
+  return { display: "inline-block", padding: "2px 7px", borderRadius: 999, background: "rgba(255,255,255,.72)", border: `1px solid ${palette.border}`, color: palette.accent, fontSize: 9, fontWeight: 800, letterSpacing: 0.7, textTransform: "uppercase" };
+};
+const alignedQueryHeaderStyle = { background: QUERY_PANEL.header, color: QUERY_PANEL.accent, borderBottom: `3px solid ${QUERY_PANEL.accent}` };
+const alignedCandidateHeaderStyle = { background: CANDIDATE_PANEL.header, color: CANDIDATE_PANEL.accent, borderBottom: `3px solid ${CANDIDATE_PANEL.accent}` };
+const alignedQueryCellStyle = { background: QUERY_PANEL.background, borderLeft: `1px solid ${QUERY_PANEL.border}` };
+const alignedCandidateCellStyle = { background: CANDIDATE_PANEL.background, borderLeft: `1px solid ${CANDIDATE_PANEL.border}` };
 const evidenceChipStyle = { display: "inline-block", padding: "2px 6px", borderRadius: 999, background: "#DFF3EF", color: "#146B60", fontSize: 10, fontWeight: 700 };
 const reviewColor = (status) => ({ very_similar: C.teal, similar: "#24618A", uncertain: C.amber, dissimilar: "#9A5A1A", very_dissimilar: C.red }[status] || C.inkFaint);
-const similarOnlyButtonStyle = (active, disabled) => ({ marginLeft: "auto", border: `1px solid ${active ? C.teal : C.border}`, borderRadius: 7, padding: "7px 10px", background: active ? C.tealSoft : "white", color: active ? "#0B6C62" : C.inkMuted, fontSize: 12, fontWeight: 700, cursor: disabled ? "not-allowed" : "pointer", opacity: disabled ? 0.5 : 1, display: "inline-flex", alignItems: "center", gap: 5 });
+const similarOnlyButtonStyle = (active, disabled) => ({
+  marginLeft: "auto",
+  border: `2px solid ${active ? "#08776D" : C.teal}`,
+  borderRadius: 9,
+  padding: "8px 13px",
+  background: active ? C.teal : "#F0FBF9",
+  color: active ? "white" : "#08776D",
+  fontSize: 12,
+  fontWeight: 800,
+  cursor: disabled ? "not-allowed" : "pointer",
+  opacity: disabled ? 0.4 : 1,
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 6,
+  boxShadow: disabled ? "none" : active ? "0 4px 12px rgba(14,143,130,.32)" : "0 2px 7px rgba(14,143,130,.16)",
+  transform: active ? "translateY(-1px)" : "none",
+});
 const accountSummaryStyle = { marginTop: 14, paddingTop: 12, borderTop: "1px solid #2a3d4c", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, color: "#8da0ac", fontSize: 10 };
 const darkIconButtonStyle = { border: "1px solid #2a3d4c", borderRadius: 6, padding: 7, display: "grid", placeItems: "center", background: "#0f1a22", color: "white", cursor: "pointer" };
 const manageAccountsButtonStyle = { marginTop: 8, width: "100%", border: "1px solid #2a3d4c", borderRadius: 6, padding: "8px 9px", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, background: "#193441", color: "#8FE0D4", cursor: "pointer", fontSize: 11, fontWeight: 700 };
