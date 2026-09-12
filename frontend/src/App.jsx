@@ -102,7 +102,7 @@ function VerifyApp({ user, onLogout }) {
     [session, candidateSearch],
   );
   if (error && !session) return <Centered>Lỗi: {error}</Centered>;
-  if (!session) return <Centered>Đang tải Top-5 và dữ liệu raw…</Centered>;
+  if (!session) return <Centered>Đang tải Top-20 từ PostgreSQL…</Centered>;
 
   const status = candidate?.verification?.status || selectedSummary?.verification?.status || "pending";
   const similarityFilterActive = showSimilarOnly && (tab === "ehr" || tab === "labs");
@@ -122,10 +122,14 @@ function VerifyApp({ user, onLogout }) {
     setSaving(true);
     try {
       const saved = await submitComparisonVerification(
-        session.query.id, candidate.patient_id, { status: nextStatus, note },
+        session.query.id, candidate.patient_id, {
+          status: nextStatus,
+          note,
+          version: candidate.verification?.version || 0,
+        },
       );
       const verification = {
-        status: saved.status, note: saved.note, reviewer: saved.reviewer, at: saved.at,
+        status: saved.status, note: saved.note, reviewer: saved.reviewer, at: saved.at, version: saved.version,
       };
       setCandidate((old) => ({ ...old, verification }));
       setSession((old) => ({
@@ -183,11 +187,11 @@ function VerifyApp({ user, onLogout }) {
             </option>)}
           </select>
         </label>
-        <div style={{ marginTop: 5, color: "#8da0ac", fontSize: 10 }}>Chọn query để đổi sang Top-5 tương ứng từ CSV.</div>
+        <div style={{ marginTop: 5, color: "#8da0ac", fontSize: 10 }}>Chọn query để đổi sang Top-20 tương ứng trong retrieval run.</div>
       </div>
       <div style={searchBox}>
         <Search size={14} color="#8da0ac" />
-        <input value={candidateSearch} onChange={(event) => setCandidateSearch(event.target.value)} placeholder="Lọc trong Top-5" style={searchInput} />
+        <input value={candidateSearch} onChange={(event) => setCandidateSearch(event.target.value)} placeholder="Lọc trong Top-20" style={searchInput} />
       </div>
       <div style={{ padding: "4px 8px", overflowY: "auto", flex: 1 }}>
         {filtered.map((item) => <button key={item.patient_id} onClick={() => setSelectedId(item.patient_id)} style={sidebarItemStyle(selectedId === item.patient_id)}>
@@ -312,7 +316,7 @@ function AccountManager({ onClose }) {
       <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}><div><h2 style={{ margin: 0, fontSize: 18 }}>Quản lý tài khoản</h2><div style={{ color: C.inkMuted, fontSize: 12, marginTop: 4 }}>Chỉ quản trị viên truy cập được khu vực này.</div></div><button onClick={onClose} style={closeButtonStyle}><X size={18} /></button></header>
       <form onSubmit={submit} style={{ display: "grid", gridTemplateColumns: "1fr 1fr 150px auto", gap: 9, margin: "20px 0" }}>
         <input value={username} onChange={(event) => setUsername(event.target.value)} placeholder="Tên đăng nhập" minLength={3} required style={loginInputStyle} />
-        <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Mật khẩu (ít nhất 8 ký tự)" minLength={8} required style={loginInputStyle} />
+        <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Mật khẩu (ít nhất 12 ký tự)" minLength={12} required style={loginInputStyle} />
         <select value={role} onChange={(event) => setRole(event.target.value)} style={loginInputStyle}><option value="reviewer">Người đánh giá</option><option value="admin">Quản trị viên</option></select>
         <button type="submit" disabled={saving} style={createButtonStyle}><UserPlus size={15} />{saving ? "Đang tạo…" : "Tạo"}</button>
       </form>

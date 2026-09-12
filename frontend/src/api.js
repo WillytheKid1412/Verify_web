@@ -1,27 +1,12 @@
 const API_URL = import.meta.env.VITE_API_URL || "/api";
 export const API_ORIGIN = API_URL.startsWith("http") ? API_URL.replace(/\/api$/, "") : "";
-const TOKEN_KEY = "patient_verify_token";
 const queryParam = (queryPatientId) => queryPatientId
   ? `query_patient_id=${encodeURIComponent(queryPatientId)}` : "";
 
-export function getAuthToken() {
-  return window.localStorage.getItem(TOKEN_KEY) || "";
-}
-
-export function setAuthToken(token) {
-  if (token) window.localStorage.setItem(TOKEN_KEY, token);
-  else window.localStorage.removeItem(TOKEN_KEY);
-}
-
 export async function apiFetch(url, options = {}) {
   const headers = new Headers(options.headers || {});
-  const token = getAuthToken();
-  if (token) headers.set("Authorization", `Bearer ${token}`);
-  const response = await fetch(url, { ...options, headers });
-  if (response.status === 401 && token) {
-    setAuthToken("");
-    window.dispatchEvent(new Event("auth-expired"));
-  }
+  const response = await fetch(url, { ...options, headers, credentials: "include" });
+  if (response.status === 401) window.dispatchEvent(new Event("auth-expired"));
   return response;
 }
 
@@ -37,24 +22,23 @@ async function errorMessage(response, fallback) {
 export async function login(username, password) {
   const res = await fetch(`${API_URL}/auth/login`, {
     method: "POST",
+    credentials: "include",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ username, password }),
   });
   if (!res.ok) throw new Error(await errorMessage(res, "Không đăng nhập được"));
   const data = await res.json();
-  setAuthToken(data.token);
   return data.user;
 }
 
 export async function fetchCurrentUser() {
-  if (!getAuthToken()) return null;
   const res = await apiFetch(`${API_URL}/auth/me`);
   if (!res.ok) return null;
   return (await res.json()).user;
 }
 
 export async function logout() {
-  try { await apiFetch(`${API_URL}/auth/logout`, { method: "POST" }); } finally { setAuthToken(""); }
+  await apiFetch(`${API_URL}/auth/logout`, { method: "POST" });
 }
 
 export async function fetchUsers() {
@@ -128,12 +112,12 @@ export async function fetchComparisonCandidate(queryPatientId, id) {
   return res.json();
 }
 
-export async function submitComparisonVerification(queryPatientId, id, { status, note }) {
+export async function submitComparisonVerification(queryPatientId, id, { status, note, version }) {
   const res = await apiFetch(`${API_URL}/comparison/${encodeURIComponent(id)}/verify`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ query_patient_id: queryPatientId, status, note }),
+    body: JSON.stringify({ query_patient_id: queryPatientId, status, note, version }),
   });
-  if (!res.ok) throw new Error("Không lưu được kết quả xác minh");
+  if (!res.ok) throw new Error(await errorMessage(res, "Không lưu được kết quả xác minh"));
   return res.json();
 }

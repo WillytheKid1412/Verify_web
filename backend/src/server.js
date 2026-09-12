@@ -1,38 +1,66 @@
+import crypto from "node:crypto";
 import express from "express";
 import cors from "cors";
-import patientsRouter from "./routes/patients.js";
 import comparisonRouter from "./routes/comparison.js";
 import imagingRouter from "./routes/imaging.js";
 import authRouter from "./routes/auth.js";
-import { initializeAdmin } from "./data/auth.js";
+import { config, validateRuntimeConfig } from "./config.js";
+import { checkDatabase, closePool } from "./db/pool.js";
 import { requireAuth } from "./middleware/auth.js";
-import path from "path";
 
+validateRuntimeConfig();
 const app = express();
-const PORT = process.env.PORT || 4000;
+if (config.http.trustProxy) app.set("trust proxy", 1);
 
-app.use(cors());
-app.use(express.json());
-initializeAdmin();
-const sampleDataDir = process.env.SAMPLE_DATA_DIR || path.resolve(process.cwd(), "../sample_data");
-// Tên thư mục export preview có timestamp; API giữ một URL ổn định cho frontend.
-app.use("/sample/previews", express.static(path.join(sampleDataDir, "sample_previews_24179852_20260829_152459")));
-app.use("/sample", express.static(sampleDataDir));
+app.disable("x-powered-by");
+app.use((req, res, next) => {
+  req.id = req.get("x-request-id") || crypto.randomUUID();
+  res.set("X-Request-Id", req.id);
+  next();
+});
+app.use(cors({
+  origin: config.http.allowedOrigin || false,
+  credentials: true,
+  methods: ["GET", "POST", "OPTIONS"],
+}));
+app.use(express.json({ limit: "64kb" }));
 
-app.get("/api/health", (req, res) => res.json({ ok: true }));
+app.get("/api/health/live", (req, res) => res.json({ ok: true }));
+app.get("/api/health/ready", async (req, res) => {
+  try {
+    await checkDatabase();
+    res.json({ ok: true });
+  } catch {
+    res.status(503).json({ ok: false, error: "Database chưa sẵn sàng" });
+  }
+});
+app.get("/api/health", (req, res) => res.redirect(307, "/api/health/ready"));
 app.use("/api/auth", authRouter);
 app.use("/api", requireAuth);
-app.use("/api/patients", patientsRouter);
 app.use("/api/comparison", comparisonRouter);
 app.use("/api/imaging", imagingRouter);
 
 app.use((error, req, res, next) => {
   if (res.headersSent) return next(error);
   const status = error.status || 500;
-  if (status >= 500) console.error(error);
-  res.status(status).json({ error: error.message || "Lỗi máy chủ" });
+  if (status >= 500) console.error("Request failed", { requestId: req.id, message: error.message });
+  const body = { error: status >= 500 ? "Lỗi máy chủ" : error.message, request_id: req.id };
+  if (status === 409 && Number.isInteger(error.currentVersion)) body.current_version = error.currentVersion;
+  res.status(status).json(body);
 });
 
-app.listen(PORT, () => {
-  console.log(`Backend đang chạy tại http://localhost:${PORT}`);
+const server = app.listen(config.port, () => {
+  console.log(`Backend đang chạy tại cổng ${config.port}`);
 });
+
+async function shutdown(signal) {
+  console.log(`Nhận ${signal}, đang dừng an toàn`);
+  server.close(async () => {
+    await closePool().catch((error) => console.error("Không đóng được PostgreSQL pool", { message: error.message }));
+    process.exit(0);
+  });
+  setTimeout(() => process.exit(1), 10_000).unref();
+}
+
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT", () => shutdown("SIGINT"));

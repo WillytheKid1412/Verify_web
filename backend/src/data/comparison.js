@@ -1,14 +1,6 @@
-import fs from "fs";
-import { fileURLToPath } from "url";
 import { getPatient } from "./rawPatients.js";
-import { getVerification, setVerification } from "./store.js";
-
-const RETRIEVAL_FILE = process.env.RETRIEVAL_FILE
-  || fileURLToPath(new URL("./retrieval.json", import.meta.url));
-const TOPK_FILE = process.env.TOPK_FILE || "";
-const DEFAULT_QUERY_PATIENT_ID = process.env.QUERY_PATIENT_ID || "";
-const QUERY_LIMIT = 5;
-const CANDIDATE_LIMIT = 5;
+import { findPair, getContext, listQueries } from "../repositories/retrievalRepository.js";
+import { saveReview } from "../repositories/reviewRepository.js";
 const STOP_WORDS = new Set([
   "bệnh", "nhân", "điều", "trị", "chẩn", "đoán", "không", "có", "của",
   "cho", "và", "với", "trong", "ngoài", "được", "theo", "sau", "trước",
@@ -25,147 +17,6 @@ const EHR_METADATA_LABELS = new Set([
 const EHR_BOILERPLATE_LABELS = new Set([
   // "khám tổn thương", "diễn biến lâm sàng", "hướng điều trị", "phương pháp điều trị",
 ]);
-
-let topkCache = null;
-
-function readQuerySelection() {
-  let config;
-  try {
-    config = JSON.parse(fs.readFileSync(RETRIEVAL_FILE, "utf8"));
-  } catch (error) {
-    throw new Error(`Không đọc được cấu hình query ${RETRIEVAL_FILE}: ${error.message}`);
-  }
-  const selected = Array.isArray(config?.query_patient_ids)
-    ? [...new Set(config.query_patient_ids.map((id) => String(id).trim()).filter(Boolean))]
-    : [];
-  if (selected.length !== QUERY_LIMIT) {
-    throw new Error(`retrieval.json phải chứa đúng ${QUERY_LIMIT} query_patient_ids duy nhất.`);
-  }
-  return selected;
-}
-
-function parseCsvLine(line) {
-  const cells = [];
-  let value = "";
-  let quoted = false;
-  for (let index = 0; index < line.length; index += 1) {
-    const character = line[index];
-    if (character === '"') {
-      if (quoted && line[index + 1] === '"') {
-        value += '"';
-        index += 1;
-      } else {
-        quoted = !quoted;
-      }
-    } else if (character === "," && !quoted) {
-      cells.push(value);
-      value = "";
-    } else {
-      value += character;
-    }
-  }
-  cells.push(value);
-  return cells;
-}
-
-function readTopkIndex() {
-  if (!TOPK_FILE || !fs.statSync(TOPK_FILE, { throwIfNoEntry: false })?.isFile()) {
-    throw new Error("TOPK_FILE phải trỏ tới CSV Top-20 hợp lệ; ứng dụng không dùng dữ liệu retrieval dự phòng.");
-  }
-  const stat = fs.statSync(TOPK_FILE);
-  if (topkCache?.mtimeMs === stat.mtimeMs && topkCache?.size === stat.size) return topkCache.value;
-  const lines = fs.readFileSync(TOPK_FILE, "utf8").replace(/^\uFEFF/, "").trim().split(/\r?\n/);
-  if (lines.length < 2) throw new Error(`Top-K CSV không có dữ liệu: ${TOPK_FILE}`);
-  const header = parseCsvLine(lines[0]);
-  const required = [
-    "query_patient_id", "query_split", "rank", "related_patient_id",
-    "related_split", "cosine_similarity", "shares_primary_icd_group",
-    "shared_primary_icd_groups",
-  ];
-  const positions = Object.fromEntries(required.map((name) => [name, header.indexOf(name)]));
-  const missing = required.filter((name) => positions[name] < 0);
-  if (missing.length) throw new Error(`Top-K CSV thiếu cột: ${missing.join(", ")}`);
-
-  const byQuery = new Map();
-  for (const line of lines.slice(1)) {
-    if (!line.trim()) continue;
-    const cells = parseCsvLine(line);
-    const queryId = String(cells[positions.query_patient_id] || "").trim();
-    const patientId = String(cells[positions.related_patient_id] || "").trim();
-    const rank = Number(cells[positions.rank]);
-    const similarityScore = Number(cells[positions.cosine_similarity]);
-    if (!queryId || !patientId || !Number.isInteger(rank) || !Number.isFinite(similarityScore)) continue;
-    const candidate = {
-      rank,
-      patient_id: patientId,
-      similarity_score: similarityScore,
-      query_split: String(cells[positions.query_split] || ""),
-      related_split: String(cells[positions.related_split] || ""),
-      shares_primary_icd_group: String(cells[positions.shares_primary_icd_group]).toLowerCase() === "true",
-      shared_primary_icd_groups: String(cells[positions.shared_primary_icd_groups] || "").split("|").filter(Boolean),
-    };
-    if (!byQuery.has(queryId)) byQuery.set(queryId, []);
-    byQuery.get(queryId).push(candidate);
-  }
-  for (const [queryId, candidates] of byQuery.entries()) {
-    const topFive = candidates
-      .sort((left, right) => left.rank - right.rank)
-      .filter((candidate) => candidate.rank >= 1 && candidate.rank <= CANDIDATE_LIMIT)
-      .slice(0, CANDIDATE_LIMIT);
-    byQuery.set(queryId, topFive);
-  }
-  const selectedIds = readQuerySelection();
-  if (selectedIds.length) {
-    const missing = selectedIds.filter((id) => !byQuery.has(id));
-    if (missing.length) throw new Error(`Các query không có trong Top-K CSV: ${missing.join(", ")}`);
-    const incomplete = selectedIds.filter((id) => {
-      const ranks = byQuery.get(id).map((candidate) => candidate.rank);
-      return ranks.length !== CANDIDATE_LIMIT
-        || ranks.some((rank, index) => rank !== index + 1);
-    });
-    if (incomplete.length) {
-      throw new Error(`Các query không có đủ rank 1-${CANDIDATE_LIMIT} trong CSV: ${incomplete.join(", ")}`);
-    }
-    for (const patientId of [...byQuery.keys()]) {
-      if (!selectedIds.includes(patientId)) byQuery.delete(patientId);
-    }
-  }
-  const queryOrder = selectedIds;
-  const queries = queryOrder.map((patientId) => {
-    const candidates = byQuery.get(patientId);
-    return {
-      patient_id: patientId,
-      split: candidates[0]?.query_split || "",
-      candidate_count: candidates.length,
-    };
-  });
-  const value = { byQuery, queries, source: TOPK_FILE };
-  topkCache = { mtimeMs: stat.mtimeMs, size: stat.size, value };
-  return value;
-}
-
-function resolveContext(queryPatientId) {
-  const topk = readTopkIndex();
-  const requested = String(queryPatientId || DEFAULT_QUERY_PATIENT_ID || topk.queries[0]?.patient_id || "");
-  const candidates = topk.byQuery.get(requested);
-  if (!candidates) {
-    const error = new Error(`Không có Top-5 cho bệnh nhân query ${requested}.`);
-    error.status = 404;
-    throw error;
-  }
-  return { patientId: requested, candidates, source: topk.source };
-}
-
-function loadContext(queryPatientId) {
-  const context = resolveContext(queryPatientId);
-  const query = getPatient(context.patientId);
-  if (!query) throw new Error(`Không đọc được query ${context.patientId} trong data/raw.`);
-  return { query, candidates: context.candidates, source: context.source };
-}
-
-function withVerification(queryId, candidate) {
-  return { ...candidate, verification: getVerification(`${queryId}:${candidate.patient_id}`) };
-}
 
 function normalize(value) {
   return String(value || "").normalize("NFC").toLocaleLowerCase("vi").trim();
@@ -375,52 +226,93 @@ export function buildSimilarityEvidence(query, candidate, retrievalCandidate) {
   };
 }
 
-export function listComparisonQueries() {
-  const topk = readTopkIndex();
-  const defaultId = topk.byQuery.has(DEFAULT_QUERY_PATIENT_ID)
-    ? DEFAULT_QUERY_PATIENT_ID : topk.queries[0]?.patient_id;
-  return { default_query_patient_id: defaultId, source: topk.source, queries: topk.queries };
+async function resolveQueryId(queryPatientId, actor) {
+  if (queryPatientId) return String(queryPatientId);
+  const listing = await listQueries(actor);
+  return listing.queries[0]?.patient_id || "";
 }
 
-export function getComparisonSession(queryPatientId) {
-  const { query, candidates, source } = loadContext(queryPatientId);
+async function loadContext(queryPatientId, actor) {
+  const patientId = await resolveQueryId(queryPatientId, actor);
+  const context = patientId ? await getContext(patientId, actor) : null;
+  if (!context) {
+    const error = new Error("Không tìm thấy query được phân quyền trong batch đang hoạt động.");
+    error.status = 404;
+    throw error;
+  }
+  if (context.candidates.length !== 20 || context.candidates.some((item, index) => item.rank !== index + 1)) {
+    const error = new Error(`Query ${patientId} chưa có đủ rank 1-20 trong retrieval run.`);
+    error.status = 409;
+    throw error;
+  }
+  const patient = await getPatient(patientId);
+  if (!patient) {
+    const error = new Error(`Không đọc được dữ liệu query ${patientId} từ PostgreSQL.`);
+    error.status = 404;
+    throw error;
+  }
+  return { query: patient, candidates: context.candidates, batch: context.batch };
+}
+
+export async function listComparisonQueries(actor) {
+  const listing = await listQueries(actor);
   return {
-    query,
-    retrieval_source: source,
-    candidates: candidates.map((candidate) => withVerification(query.id, candidate)),
+    default_query_patient_id: listing.queries[0]?.patient_id || null,
+    source: listing.batch ? `retrieval-run:${listing.batch.run_id}` : null,
+    batch: listing.batch ? { id: listing.batch.id, name: listing.batch.name } : null,
+    queries: listing.queries,
   };
 }
 
-export function getComparisonCandidate(queryPatientId, similarPatientId) {
-  const { query, candidates } = loadContext(queryPatientId);
-  const retrievalCandidate = candidates.find((item) => item.patient_id === similarPatientId);
-  if (!retrievalCandidate) return null;
-  const patient = getPatient(similarPatientId);
-  return patient ? {
-    ...withVerification(query.id, retrievalCandidate),
-    patient,
-    similarity_evidence: buildSimilarityEvidence(query, patient, retrievalCandidate),
-  } : null;
+export async function getComparisonSession(queryPatientId, actor) {
+  const { query, candidates, batch } = await loadContext(queryPatientId, actor);
+  return {
+    query,
+    retrieval_source: `retrieval-run:${batch.run_id}`,
+    batch: { id: batch.id, name: batch.name },
+    candidates,
+  };
 }
 
-export function saveComparisonDecision(queryPatientId, similarPatientId, payload) {
-  const { query, candidates } = loadContext(queryPatientId);
-  const candidate = candidates.find((item) => item.patient_id === similarPatientId);
-  if (!candidate) return null;
-  const saved = setVerification(`${query.id}:${similarPatientId}`, payload);
+export async function getComparisonCandidate(queryPatientId, similarPatientId, actor) {
+  const { query, candidates } = await loadContext(queryPatientId, actor);
+  const retrievalCandidate = candidates.find((item) => item.patient_id === similarPatientId);
+  if (!retrievalCandidate) return null;
+  const patient = await getPatient(similarPatientId);
+  if (!patient) return null;
   return {
-    queryPatientId: query.id,
+    ...retrievalCandidate,
+    patient,
+    similarity_evidence: retrievalCandidate.observable_overlap
+      || buildSimilarityEvidence(query, patient, retrievalCandidate),
+  };
+}
+
+export async function saveComparisonDecision(queryPatientId, similarPatientId, payload, actor, requestContext = {}) {
+  const pair = await findPair(queryPatientId, similarPatientId, actor);
+  if (!pair) return null;
+  const saved = await saveReview({
+    pairId: pair.pair_id,
+    reviewer: actor,
+    status: payload.status,
+    note: payload.note,
+    expectedVersion: payload.version,
+    requestId: requestContext.requestId,
+    ip: requestContext.ip,
+  });
+  return {
+    queryPatientId,
     similarPatientId,
-    rank: candidate.rank,
-    similarityScore: candidate.similarity_score,
+    rank: pair.rank,
+    similarityScore: pair.similarity_score,
     ...saved,
   };
 }
 
-export function getComparisonExport(queryPatientId) {
-  const { query, candidates } = loadContext(queryPatientId);
+export async function getComparisonExport(queryPatientId, actor) {
+  const { query, candidates } = await loadContext(queryPatientId, actor);
   return candidates.map((candidate) => {
-    const review = getVerification(`${query.id}:${candidate.patient_id}`) || {};
+    const review = candidate.verification || {};
     return {
       query_patient_id: query.id,
       similar_patient_id: candidate.patient_id,

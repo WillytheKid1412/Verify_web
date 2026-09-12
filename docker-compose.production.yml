@@ -1,0 +1,46 @@
+services:
+  backend:
+    build:
+      context: ./backend
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL from the deployment secret store}
+      DB_SSL_MODE: verify-full
+      DATABASE_CA_CERT_FILE: /run/secrets/rds-ca.pem
+      DB_POOL_MAX: ${DB_POOL_MAX:-5}
+      AWS_REGION: ${AWS_REGION:?Set AWS_REGION}
+      S3_IMAGE_BUCKET: ${S3_IMAGE_BUCKET:?Set S3_IMAGE_BUCKET}
+      ALLOWED_ORIGIN: ${ALLOWED_ORIGIN:?Set the public HTTPS origin}
+      SESSION_COOKIE_SECURE: "true"
+      TRUST_PROXY: "true"
+      VERIFICATION_BATCH_ID: ${VERIFICATION_BATCH_ID:-}
+    expose:
+      - "4000"
+    volumes:
+      - ${RDS_CA_CERT_FILE:?Set RDS_CA_CERT_FILE}:/run/secrets/rds-ca.pem:ro
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:4000/api/health/ready"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_URL: /api
+    ports:
+      - "8080:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped

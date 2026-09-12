@@ -1,4 +1,34 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: patient_verify
+      POSTGRES_USER: patient_verify
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-local-dev-only-change-me}
+    ports:
+      - "127.0.0.1:55432:5432"
+    volumes:
+      - ./.runtime/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U patient_verify -d patient_verify"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
+  migrate:
+    build:
+      context: ./backend
+    command: npm run db:migrate
+    environment:
+      - DATABASE_URL=postgresql://patient_verify:${POSTGRES_PASSWORD:-local-dev-only-change-me}@postgres:5432/patient_verify
+      - DB_SSL_MODE=disable
+    depends_on:
+      postgres:
+        condition: service_healthy
+    profiles: ["setup"]
+    restart: "no"
+
   backend:
     build:
       context: ./backend
@@ -7,19 +37,16 @@ services:
       - "4001:4000"
     environment:
       - PORT=4000
-      - DATA_DIR=/app/data
-      - RAW_ROOT=/app/raw
-      - QUERY_PATIENT_ID=24179852
-      - SAMPLE_DATA_DIR=/app/sample_data
-      - TOPK_FILE=/app/retrieval/top20_related_patients.csv
-      - ADMIN_USERNAME=${ADMIN_USERNAME:?Hãy đặt ADMIN_USERNAME trong file .env}
-      - ADMIN_PASSWORD=${ADMIN_PASSWORD:?Hãy đặt ADMIN_PASSWORD trong file .env}
-    volumes:
-      - backend_data:/app/data
-      - /mnt/disk4/namtn/similar_case_retrieval/working/our_method/data/raw:/app/raw:ro
-      - ./backend/src/data/retrieval.json:/app/src/data/retrieval.json:ro
-      - ${TOPK_HOST_FILE:-/mnt/disk4/similar_cases_retrieval/data/experiments/patient_fusion/top20_attention_pool_all_patients_v1/top20_related_patients.csv}:/app/retrieval/top20_related_patients.csv:ro
-      - ./sample_data:/app/sample_data:ro
+      - DATABASE_URL=postgresql://patient_verify:${POSTGRES_PASSWORD:-local-dev-only-change-me}@postgres:5432/patient_verify
+      - DB_SSL_MODE=disable
+      - SESSION_COOKIE_SECURE=false
+      - ALLOWED_ORIGIN=http://localhost:5174
+      - TRUST_PROXY=false
+      - ADMIN_USERNAME=${ADMIN_USERNAME:-}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
     restart: unless-stopped
 
   frontend:
@@ -34,6 +61,3 @@ services:
     depends_on:
       - backend
     restart: unless-stopped
-
-volumes:
-  backend_data:
