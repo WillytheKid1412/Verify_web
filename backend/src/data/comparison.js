@@ -96,6 +96,9 @@ function readStaticRetrieval() {
   } catch (error) {
     throw new Error(`Không đọc được retrieval.json: ${error.message}`);
   }
+  if (Array.isArray(retrieval?.query_patient_ids) && !retrieval?.patient_id) {
+    throw new Error("Chưa có file Top-20 (TOPK_FILE). Chạy Docker hoặc đặt TOPK_FILE rồi khởi động lại backend.");
+  }
   if (!retrieval?.patient_id || !Array.isArray(retrieval.similar_patients)) {
     throw new Error("retrieval.json phải có patient_id và mảng similar_patients.");
   }

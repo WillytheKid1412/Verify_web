@@ -28,22 +28,6 @@ export function StatusBadge({ status }) {
   );
 }
 
-export function UrgencyDot({ urgency }) {
-  const color = urgency > 70 ? C.red : urgency > 45 ? C.amber : C.teal;
-  return <span style={{ display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: color, flexShrink: 0 }} />;
-}
-
-export function InfoCard({ title, children }) {
-  return (
-    <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, padding: "14px 16px" }}>
-      <div style={{ fontSize: 10.5, fontWeight: 700, color: C.inkFaint, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>
-        {title}
-      </div>
-      {children}
-    </div>
-  );
-}
-
 export function ActionButton({ label, icon: Icon, color, onClick, active, filled, disabled }) {
   return (
     <button
@@ -64,5 +48,33 @@ export function ActionButton({ label, icon: Icon, color, onClick, active, filled
   );
 }
 
+export function Card({ title, children }) {
+  return (
+    <div style={{ border: `1px solid ${C.border}`, background: "white", borderRadius: 8, padding: "11px 12px", fontSize: 13, lineHeight: 1.5 }}>
+      <div style={{ fontSize: 10, fontWeight: 700, color: C.inkFaint, textTransform: "uppercase", marginBottom: 4 }}>{title}</div>
+      {children}
+    </div>
+  );
+}
+
+export function Empty({ label }) {
+  return (
+    <div style={{ minHeight: 120, display: "grid", placeItems: "center", color: C.inkFaint, fontSize: 13, border: `1px dashed ${C.border}`, borderRadius: 8, marginTop: 18 }}>
+      {label}
+    </div>
+  );
+}
+
+export function Centered({ children }) {
+  return (
+    <div style={{ minHeight: "100vh", display: "grid", placeItems: "center", fontFamily: "Inter, sans-serif", color: C.inkMuted, padding: 18, background: C.bg }}>
+      {children}
+    </div>
+  );
+}
+
 export const thStyle = { textAlign: "left", padding: "9px 14px", fontSize: 11, fontWeight: 700, color: "#5B6570", textTransform: "uppercase", letterSpacing: 0.4 };
 export const tdStyle = { padding: "9px 14px" };
+export const labelStyle = { display: "block", fontSize: 11, color: C.inkMuted, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.3 };
+export const selectStyle = { display: "block", marginTop: 5, width: "100%", padding: "8px 9px", border: `1px solid ${C.border}`, borderRadius: 6, background: "white", color: C.ink };
+export const evidenceChipStyle = { display: "inline-block", padding: "2px 6px", borderRadius: 999, background: "#DFF3EF", color: "#146B60", fontSize: 10, fontWeight: 700 };
