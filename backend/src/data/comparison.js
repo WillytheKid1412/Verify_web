@@ -1,9 +1,12 @@
-import fs from "fs";
 import { fileURLToPath } from "url";
 import { getPatient } from "./rawPatients.js";
 import { getVerification, setVerification } from "./store.js";
+import { fileStat, isFile, readJson } from "../utils/file.js";
+import { readCsv } from "../utils/csv.js";
+import { httpError } from "../utils/http.js";
+import { normalize, phraseSet, tokenize } from "../utils/text.js";
 
-const RETRIEVAL_FILE = fileURLToPath(new URL("./retrieval.json", import.meta.url));
+const RETRIEVAL_FILE = process.env.RETRIEVAL_FILE || fileURLToPath(new URL("./retrieval.json", import.meta.url));
 const TOPK_FILE = process.env.TOPK_FILE || "";
 const DEFAULT_QUERY_PATIENT_ID = process.env.QUERY_PATIENT_ID || "";
 const STOP_WORDS = new Set([
@@ -25,72 +28,40 @@ const EHR_BOILERPLATE_LABELS = new Set([
 let topkCache = null;
 
 function readQuerySelection() {
-  try {
-    const config = JSON.parse(fs.readFileSync(RETRIEVAL_FILE, "utf8"));
-    if (!Array.isArray(config?.query_patient_ids)) return [];
-    return [...new Set(config.query_patient_ids.map((id) => String(id).trim()).filter(Boolean))];
-  } catch {
-    return [];
-  }
-}
-
-function parseCsvLine(line) {
-  const cells = [];
-  let value = "";
-  let quoted = false;
-  for (let index = 0; index < line.length; index += 1) {
-    const character = line[index];
-    if (character === '"') {
-      if (quoted && line[index + 1] === '"') {
-        value += '"';
-        index += 1;
-      } else {
-        quoted = !quoted;
-      }
-    } else if (character === "," && !quoted) {
-      cells.push(value);
-      value = "";
-    } else {
-      value += character;
-    }
-  }
-  cells.push(value);
-  return cells;
+  const config = readJson(RETRIEVAL_FILE, null);
+  if (!Array.isArray(config?.query_patient_ids)) return [];
+  return [...new Set(config.query_patient_ids.map((id) => String(id).trim()).filter(Boolean))];
 }
 
 function readTopkIndex() {
-  if (!TOPK_FILE || !fs.statSync(TOPK_FILE, { throwIfNoEntry: false })?.isFile()) return null;
-  const stat = fs.statSync(TOPK_FILE);
+  if (!TOPK_FILE || !isFile(TOPK_FILE)) return null;
+  const stat = fileStat(TOPK_FILE);
   if (topkCache?.mtimeMs === stat.mtimeMs && topkCache?.size === stat.size) return topkCache.value;
-  const lines = fs.readFileSync(TOPK_FILE, "utf8").replace(/^\uFEFF/, "").trim().split(/\r?\n/);
-  if (lines.length < 2) throw new Error(`Top-K CSV không có dữ liệu: ${TOPK_FILE}`);
-  const header = parseCsvLine(lines[0]);
+  const { header, rows } = readCsv(TOPK_FILE);
+  if (!rows.length) throw new Error(`Top-K CSV không có dữ liệu: ${TOPK_FILE}`);
   const required = [
     "query_patient_id", "query_split", "rank", "related_patient_id",
     "related_split", "cosine_similarity", "shares_primary_icd_group",
     "shared_primary_icd_groups",
   ];
-  const positions = Object.fromEntries(required.map((name) => [name, header.indexOf(name)]));
-  const missing = required.filter((name) => positions[name] < 0);
+  const missing = required.filter((name) => !header.includes(name));
   if (missing.length) throw new Error(`Top-K CSV thiếu cột: ${missing.join(", ")}`);
 
   const byQuery = new Map();
-  for (const line of lines.slice(1)) {
-    if (!line.trim()) continue;
-    const cells = parseCsvLine(line);
-    const queryId = String(cells[positions.query_patient_id] || "").trim();
-    const patientId = String(cells[positions.related_patient_id] || "").trim();
-    const rank = Number(cells[positions.rank]);
-    const similarityScore = Number(cells[positions.cosine_similarity]);
+  for (const row of rows) {
+    const queryId = String(row.query_patient_id || "").trim();
+    const patientId = String(row.related_patient_id || "").trim();
+    const rank = Number(row.rank);
+    const similarityScore = Number(row.cosine_similarity);
     if (!queryId || !patientId || !Number.isInteger(rank) || !Number.isFinite(similarityScore)) continue;
     const candidate = {
       rank,
       patient_id: patientId,
       similarity_score: similarityScore,
-      query_split: String(cells[positions.query_split] || ""),
-      related_split: String(cells[positions.related_split] || ""),
-      shares_primary_icd_group: String(cells[positions.shares_primary_icd_group]).toLowerCase() === "true",
-      shared_primary_icd_groups: String(cells[positions.shared_primary_icd_groups] || "").split("|").filter(Boolean),
+      query_split: String(row.query_split || ""),
+      related_split: String(row.related_split || ""),
+      shares_primary_icd_group: String(row.shares_primary_icd_group).toLowerCase() === "true",
+      shared_primary_icd_groups: String(row.shared_primary_icd_groups || "").split("|").filter(Boolean),
     };
     if (!byQuery.has(queryId)) byQuery.set(queryId, []);
     byQuery.get(queryId).push(candidate);
@@ -98,8 +69,8 @@ function readTopkIndex() {
   for (const candidates of byQuery.values()) candidates.sort((left, right) => left.rank - right.rank);
   const selectedIds = readQuerySelection();
   if (selectedIds.length) {
-    const missing = selectedIds.filter((id) => !byQuery.has(id));
-    if (missing.length) throw new Error(`Các query không có trong Top-K CSV: ${missing.join(", ")}`);
+    const missingIds = selectedIds.filter((id) => !byQuery.has(id));
+    if (missingIds.length) throw new Error(`Các query không có trong Top-K CSV: ${missingIds.join(", ")}`);
     for (const patientId of [...byQuery.keys()]) {
       if (!selectedIds.includes(patientId)) byQuery.delete(patientId);
     }
@@ -121,7 +92,7 @@ function readTopkIndex() {
 function readStaticRetrieval() {
   let retrieval;
   try {
-    retrieval = JSON.parse(fs.readFileSync(RETRIEVAL_FILE, "utf8"));
+    retrieval = readJson(RETRIEVAL_FILE);
   } catch (error) {
     throw new Error(`Không đọc được retrieval.json: ${error.message}`);
   }
@@ -146,18 +117,12 @@ function resolveContext(queryPatientId) {
   if (topk) {
     const requested = String(queryPatientId || DEFAULT_QUERY_PATIENT_ID || topk.queries[0]?.patient_id || "");
     const candidates = topk.byQuery.get(requested);
-    if (!candidates) {
-      const error = new Error(`Không có Top-20 cho bệnh nhân query ${requested}.`);
-      error.status = 404;
-      throw error;
-    }
+    if (!candidates) httpError(404, `Không có Top-20 cho bệnh nhân query ${requested}.`);
     return { patientId: requested, candidates, source: topk.source };
   }
   const fallback = readStaticRetrieval();
   if (queryPatientId && String(queryPatientId) !== fallback.patientId) {
-    const error = new Error(`Demo tĩnh chỉ có query ${fallback.patientId}.`);
-    error.status = 404;
-    throw error;
+    httpError(404, `Demo tĩnh chỉ có query ${fallback.patientId}.`);
   }
   return fallback;
 }
@@ -173,13 +138,8 @@ function withVerification(queryId, candidate) {
   return { ...candidate, verification: getVerification(`${queryId}:${candidate.patient_id}`) };
 }
 
-function normalize(value) {
-  return String(value || "").normalize("NFC").toLocaleLowerCase("vi").trim();
-}
-
 function clinicalTokens(value) {
-  return (normalize(value).match(/[\p{L}\p{N}]+/gu) || [])
-    .filter((token) => token.length >= 2 && !STOP_WORDS.has(token));
+  return tokenize(value, { minLength: 2, stopWords: STOP_WORDS });
 }
 
 function clinicalFields(patient) {
@@ -193,16 +153,6 @@ function clinicalFields(patient) {
     }
   }
   return fields;
-}
-
-function phraseSet(tokens) {
-  const phrases = new Set();
-  for (const width of [3, 2]) {
-    for (let index = 0; index <= tokens.length - width; index += 1) {
-      phrases.add(tokens.slice(index, index + width).join(" "));
-    }
-  }
-  return phrases;
 }
 
 function fieldOverlap(queryField, candidateField) {

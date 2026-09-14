@@ -1,45 +1,13 @@
 import fs from "fs";
 import path from "path";
+import { directories, isDirectory, isSafeSegment, readJson } from "../utils/file.js";
+import { formatDate, isFlagged } from "../utils/format.js";
+import { shuffle } from "../utils/array.js";
 
 // The source tree is read-only. Verification decisions are intentionally saved
 // elsewhere by store.js, never alongside clinical source data.
 export const RAW_ROOT = process.env.RAW_ROOT || "/mnt/disk4/namtn/similar_case_retrieval/working/our_method/data/raw";
 export const QUERY_PATIENT_ID = process.env.QUERY_PATIENT_ID || "24179852";
-
-function readJson(filePath, fallback = {}) {
-  try {
-    return JSON.parse(fs.readFileSync(filePath, "utf8"));
-  } catch {
-    return fallback;
-  }
-}
-
-function directories(dirPath) {
-  try {
-    return fs.readdirSync(dirPath, { withFileTypes: true })
-      .filter((entry) => entry.isDirectory())
-      .map((entry) => entry.name)
-      .sort();
-  } catch {
-    return [];
-  }
-}
-
-function isSafeSegment(value) {
-  return typeof value === "string" && value.length > 0 && value === path.basename(value) && !value.includes("\\");
-}
-
-function formatDate(value) {
-  const text = String(value || "");
-  if (/^\d{8}/.test(text)) return `${text.slice(0, 4)}-${text.slice(4, 6)}-${text.slice(6, 8)}`;
-  return text.slice(0, 10) || "—";
-}
-
-function isFlagged(value, referenceRange) {
-  const result = Number.parseFloat(value);
-  const bounds = String(referenceRange || "").match(/-?\d+(?:[.,]\d+)?/g)?.map((item) => Number.parseFloat(item.replace(",", ".")));
-  return Number.isFinite(result) && bounds?.length >= 2 && (result < bounds[0] || result > bounds[1]);
-}
 
 function imageUrl(patientId, recordId, modality, studyId, seriesId) {
   const params = new URLSearchParams({ patientId, recordId, modality, studyId, seriesId });
@@ -53,7 +21,7 @@ function readStudies(patientId, recordId, recordDir, modality) {
     const series = directories(studyDir).flatMap((seriesId) => {
       const seriesDir = path.join(studyDir, seriesId);
       if (!fs.existsSync(path.join(seriesDir, "raw.npy"))) return [];
-      const meta = readJson(path.join(seriesDir, "meta.json"));
+      const meta = readJson(path.join(seriesDir, "meta.json"), {});
       return [{
         id: seriesId,
         label: meta.SeriesDescription || seriesId,
@@ -62,7 +30,7 @@ function readStudies(patientId, recordId, recordDir, modality) {
         sliceUrl: imageUrl(patientId, recordId, modality, studyId, seriesId),
       }];
     });
-    const firstMeta = series[0] ? readJson(path.join(studyDir, series[0].id, "meta.json")) : {};
+    const firstMeta = series[0] ? readJson(path.join(studyDir, series[0].id, "meta.json"), {}) : {};
     return {
       id: studyId,
       label: `${modality} ${firstMeta.AccessionNumber || studyId}`,
@@ -74,7 +42,7 @@ function readStudies(patientId, recordId, recordDir, modality) {
 
 function recordFromDirectory(patientId, recordId) {
   const recordDir = path.join(RAW_ROOT, patientId, recordId);
-  const sourceEhr = readJson(path.join(recordDir, "EHR", "text.json"));
+  const sourceEhr = readJson(path.join(recordDir, "EHR", "text.json"), {});
   const sourceLabs = readJson(path.join(recordDir, "lab_result", "lab.json"), { results: [] });
   const details = [
     ["Chẩn đoán ra viện", sourceEhr.ChanDoanRaVien],
@@ -125,7 +93,7 @@ function recordFromDirectory(patientId, recordId) {
 export function getPatient(patientId) {
   if (!isSafeSegment(patientId)) return null;
   const patientDir = path.join(RAW_ROOT, patientId);
-  if (!fs.statSync(patientDir, { throwIfNoEntry: false })?.isDirectory()) return null;
+  if (!isDirectory(patientDir)) return null;
   // DICOM is the retired legacy layout, not an admission record.
   const records = directories(patientDir)
     .filter((recordId) => recordId !== "DICOM")
@@ -141,15 +109,6 @@ export function getPatient(patientId) {
   };
 }
 
-function shuffle(values) {
-  const copy = [...values];
-  for (let index = copy.length - 1; index > 0; index -= 1) {
-    const swapIndex = Math.floor(Math.random() * (index + 1));
-    [copy[index], copy[swapIndex]] = [copy[swapIndex], copy[index]];
-  }
-  return copy;
-}
-
 export function chooseRandomCandidates(count = 20) {
   const ids = directories(RAW_ROOT)
     .filter((id) => id !== QUERY_PATIENT_ID)
@@ -162,5 +121,5 @@ export function resolveRawNpy({ patientId, recordId, modality, studyId, seriesId
   if (!["XQ", "CT", "MRI"].includes(modality)) return null;
   const seriesDir = path.join(RAW_ROOT, patientId, recordId, modality, studyId, seriesId);
   const npyPath = path.join(seriesDir, "raw.npy");
-  return fs.existsSync(npyPath) ? { npyPath, meta: readJson(path.join(seriesDir, "meta.json")) } : null;
+  return fs.existsSync(npyPath) ? { npyPath, meta: readJson(path.join(seriesDir, "meta.json"), {}) } : null;
 }

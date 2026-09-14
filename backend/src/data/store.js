@@ -1,5 +1,5 @@
-import fs from "fs";
 import path from "path";
+import { ensureDir, readJson, writeJson } from "../utils/file.js";
 
 // Thư mục lưu dữ liệu có thể ghi đè bằng env DATA_DIR (dùng cho Docker volume).
 // KHÔNG dùng chung thư mục với code nguồn (src/data) để tránh volume đè mất code.
@@ -8,21 +8,14 @@ import path from "path";
 const DATA_DIR = process.env.DATA_DIR || path.resolve(process.cwd(), "data");
 const DB_FILE = path.join(DATA_DIR, "verifications.json");
 
-if (!fs.existsSync(DATA_DIR)) {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-}
+ensureDir(DATA_DIR);
 
 function readAll() {
-  try {
-    const raw = fs.readFileSync(DB_FILE, "utf-8");
-    return JSON.parse(raw);
-  } catch (e) {
-    return {};
-  }
+  return readJson(DB_FILE, {});
 }
 
 function writeAll(data) {
-  fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), "utf-8");
+  writeJson(DB_FILE, data);
 }
 
 export function getVerifications() {

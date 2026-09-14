@@ -11,7 +11,10 @@ fs.writeFileSync(topkPath, [
   "q1,test,1,c1,train,0.91,True,I63",
   "q1,test,2,c2,validation,0.88,False,",
 ].join("\n"));
+const retrievalPath = path.join(temporary, "retrieval.json");
+fs.writeFileSync(retrievalPath, JSON.stringify({ query_patient_ids: ["q1"] }));
 process.env.TOPK_FILE = topkPath;
+process.env.RETRIEVAL_FILE = retrievalPath;
 process.env.QUERY_PATIENT_ID = "q1";
 process.env.DATA_DIR = path.join(temporary, "decisions");
 
