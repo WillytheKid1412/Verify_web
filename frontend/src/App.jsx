@@ -1,6 +1,8 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
+import { fetchCurrentUser, logout } from "./api.js";
 import { C, FONTS } from "./theme.js";
 import { Centered } from "./components/ui.jsx";
+import { AccountManager, LoginPage } from "./components/Auth.jsx";
 import QuerySidebar from "./components/QuerySidebar.jsx";
 import { ComparisonHeader, ComparisonFooter } from "./components/ComparisonChrome.jsx";
 import { AlignedComparison, SimilarityEvidence, SimilarityFocus } from "./components/similarity.jsx";
@@ -8,6 +10,30 @@ import PatientPanel from "./components/PatientPanel.jsx";
 import { useComparison } from "./hooks/useComparison.js";
 
 export default function App() {
+  const [user, setUser] = useState(null);
+  const [checkingAuth, setCheckingAuth] = useState(true);
+
+  useEffect(() => {
+    fetchCurrentUser().then(setUser).finally(() => setCheckingAuth(false));
+    const expire = () => setUser(null);
+    window.addEventListener("auth-expired", expire);
+    return () => window.removeEventListener("auth-expired", expire);
+  }, []);
+
+  if (checkingAuth) return <Centered>Đang kiểm tra phiên đăng nhập…</Centered>;
+  if (!user) return <LoginPage onAuthenticated={setUser} />;
+  return (
+    <VerifyWorkspace
+      user={user}
+      onLogout={async () => {
+        try { await logout(); } finally { setUser(null); }
+      }}
+    />
+  );
+}
+
+function VerifyWorkspace({ user, onLogout }) {
+  const [showAccounts, setShowAccounts] = useState(false);
   const {
     session,
     queries,
@@ -34,8 +60,26 @@ export default function App() {
     reviewed,
   } = useComparison();
 
-  if (error && !session) return <Centered>Lỗi: {error}</Centered>;
-  if (!session) return <Centered>Đang tải Top-20 và dữ liệu raw…</Centered>;
+  if (error && !session) {
+    return (
+      <>
+        <Centered>
+          <div style={{ maxWidth: 560, textAlign: "center" }}>
+            <strong style={{ display: "block", color: C.ink, marginBottom: 8 }}>Ứng dụng đã chạy nhưng chưa có dữ liệu review</strong>
+            <span>{error}</span>
+            <div style={{ display: "flex", justifyContent: "center", gap: 8, marginTop: 18 }}>
+              {user.role === "admin" && (
+                <button type="button" onClick={() => setShowAccounts(true)} style={{ padding: "8px 12px", border: `1px solid ${C.border}`, borderRadius: 7, background: "white", cursor: "pointer" }}>Quản lý tài khoản</button>
+              )}
+              <button type="button" onClick={onLogout} style={{ padding: "8px 12px", border: `1px solid ${C.border}`, borderRadius: 7, background: "white", cursor: "pointer" }}>Đăng xuất</button>
+            </div>
+          </div>
+        </Centered>
+        {showAccounts && <AccountManager onClose={() => setShowAccounts(false)} />}
+      </>
+    );
+  }
+  if (!session) return <Centered>Đang tải Top-20 và dữ liệu bệnh nhân…</Centered>;
 
   return (
     <main style={{ minHeight: "100vh", display: "flex", background: C.bg, color: C.ink, fontFamily: "'Inter', sans-serif" }}>
@@ -52,6 +96,9 @@ export default function App() {
         filtered={filtered}
         selectedId={selectedId}
         setSelectedId={setSelectedId}
+        user={user}
+        onLogout={onLogout}
+        onManageAccounts={() => setShowAccounts(true)}
       />
       <section style={{ minWidth: 0, flex: 1, display: "flex", flexDirection: "column" }}>
         <ComparisonHeader
@@ -86,8 +133,10 @@ export default function App() {
           status={status}
           queryId={session.query.id}
           error={error}
+          isAdmin={user.role === "admin"}
         />
       </section>
+      {showAccounts && <AccountManager onClose={() => setShowAccounts(false)} />}
     </main>
   );
 }

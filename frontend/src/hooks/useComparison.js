@@ -42,6 +42,11 @@ export function useComparison() {
   useEffect(() => {
     fetchComparisonQueries().then((data) => {
       setQueries(data.queries || []);
+      if (!data.default_query_patient_id) {
+        setError("Chưa có verification batch đang hoạt động. Hãy import và kích hoạt dữ liệu trước khi review.");
+        setLoadingSession(false);
+        return undefined;
+      }
       return loadSession(data.default_query_patient_id);
     }).catch((requestError) => {
       setError(requestError.message);
@@ -81,10 +86,16 @@ export function useComparison() {
     setSaving(true);
     try {
       const saved = await submitComparisonVerification(
-        session.query.id, candidate.patient_id, { status: nextStatus, note },
+        session.query.id,
+        candidate.patient_id,
+        { status: nextStatus, note, version: candidate.verification?.version || 0 },
       );
       const verification = {
-        status: saved.status, note: saved.note, reviewer: saved.reviewer, at: saved.at,
+        status: saved.status,
+        note: saved.note,
+        reviewer: saved.reviewer,
+        at: saved.at,
+        version: saved.version,
       };
       setCandidate((old) => ({ ...old, verification }));
       setSession((old) => ({

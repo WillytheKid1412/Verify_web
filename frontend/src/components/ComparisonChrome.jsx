@@ -1,6 +1,6 @@
-import React from "react";
+import React, { useState } from "react";
 import { ChevronRight, Download, Filter } from "lucide-react";
-import { comparisonExportUrl } from "../api.js";
+import { downloadComparisonExport } from "../api.js";
 import { SCORE_LEVELS, TABS } from "../constants.js";
 import { C } from "../theme.js";
 import { ActionButton, StatusBadge } from "./ui.jsx";
@@ -43,7 +43,22 @@ export function ComparisonHeader({
   );
 }
 
-export function ComparisonFooter({ note, setNote, decide, saving, candidate, status, queryId, error }) {
+export function ComparisonFooter({ note, setNote, decide, saving, candidate, status, queryId, error, isAdmin }) {
+  const [exporting, setExporting] = useState("");
+  const [exportError, setExportError] = useState("");
+
+  async function exportResults(format) {
+    setExporting(format);
+    setExportError("");
+    try {
+      await downloadComparisonExport(format, queryId);
+    } catch (requestError) {
+      setExportError(requestError.message);
+    } finally {
+      setExporting("");
+    }
+  }
+
   return (
     <>
       <footer style={{ padding: "12px 22px", display: "flex", flexWrap: "wrap", gap: 9, alignItems: "center", background: C.surface, borderTop: `1px solid ${C.border}` }}>
@@ -56,10 +71,14 @@ export function ComparisonFooter({ note, setNote, decide, saving, candidate, sta
         {SCORE_LEVELS.map(([value, label, Icon, color]) => (
           <ActionButton key={value} label={label} icon={Icon} color={color} onClick={() => decide(value)} disabled={saving || !candidate} active={status === value} />
         ))}
-        <a href={comparisonExportUrl("csv", queryId)} style={exportLinkStyle}><Download size={14} />CSV</a>
-        <a href={comparisonExportUrl("json", queryId)} style={exportLinkStyle}><Download size={14} />JSON</a>
+        {isAdmin && (
+          <>
+            <button type="button" onClick={() => exportResults("csv")} disabled={Boolean(exporting)} style={exportLinkStyle}><Download size={14} />{exporting === "csv" ? "Đang tải…" : "CSV"}</button>
+            <button type="button" onClick={() => exportResults("json")} disabled={Boolean(exporting)} style={exportLinkStyle}><Download size={14} />{exporting === "json" ? "Đang tải…" : "JSON"}</button>
+          </>
+        )}
       </footer>
-      {error && <div style={{ color: C.red, padding: "0 22px 10px", background: C.surface, fontSize: 12 }}>{error}</div>}
+      {(error || exportError) && <div style={{ color: C.red, padding: "0 22px 10px", background: C.surface, fontSize: 12 }}>{error || exportError}</div>}
     </>
   );
 }
@@ -99,8 +118,8 @@ const exportLinkStyle = {
   borderRadius: 7,
   border: `1px solid ${C.border}`,
   color: C.inkMuted,
-  textDecoration: "none",
   fontSize: 12,
   fontWeight: 600,
   background: "white",
+  cursor: "pointer",
 };

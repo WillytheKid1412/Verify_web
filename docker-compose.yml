@@ -1,37 +1,75 @@
+x-backend-environment: &backend-environment
+  NODE_ENV: production
+  PORT: "4000"
+  DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in .env.production}
+  DB_SSL_MODE: ${DB_SSL_MODE:-verify-full}
+  DATABASE_CA_CERT_FILE: /run/secrets/rds-ca.pem
+  DB_POOL_MAX: ${DB_POOL_MAX:-5}
+  AWS_REGION: ${AWS_REGION:?Set AWS_REGION in .env.production}
+  S3_IMAGE_BUCKET: ${S3_IMAGE_BUCKET:?Set S3_IMAGE_BUCKET in .env.production}
+  ALLOWED_ORIGIN: ${ALLOWED_ORIGIN:?Set ALLOWED_ORIGIN in .env.production}
+  SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-true}
+  TRUST_PROXY: ${TRUST_PROXY:-true}
+  VERIFICATION_BATCH_ID: ${VERIFICATION_BATCH_ID:-}
+
+x-backend-runtime: &backend-runtime
+  image: ${BACKEND_IMAGE:-patient-verify-backend:latest}
+  build:
+    context: ./backend
+  environment: *backend-environment
+  volumes:
+    - ${RDS_CA_CERT_FILE:?Set RDS_CA_CERT_FILE in .env.production}:/run/secrets/rds-ca.pem:ro
+  read_only: true
+  tmpfs:
+    - /tmp:size=64m,mode=1777
+  security_opt:
+    - no-new-privileges:true
+
 services:
-  backend:
-    build:
-      context: ./backend
-    container_name: patient-verify-backend
-    ports:
-      - "4001:4000"
+  migrate:
+    <<: *backend-runtime
+    command: npm run db:migrate
+    profiles: ["setup"]
+    restart: "no"
+
+  seed-admin:
+    <<: *backend-runtime
+    command: npm run seed:admin
     environment:
-      - PORT=4000
-      - DATA_DIR=/app/data
-      - RAW_ROOT=/app/raw
-      - QUERY_PATIENT_ID=08002530
-      - SAMPLE_DATA_DIR=/app/sample_data
-      - TOPK_FILE=/app/retrieval/top20_related_patients.csv
-    volumes:
-      - backend_data:/app/data
-      - /mnt/disk4/namtn/similar_case_retrieval/working/our_method/data/raw:/app/raw:ro
-      - ./backend/src/data/retrieval.json:/app/src/data/retrieval.json:ro
-      - ${TOPK_HOST_FILE:-/mnt/disk4/similar_cases_retrieval/data/experiments/patient_fusion/top20_attention_pool_all_patients_v1/top20_related_patients.csv}:/app/retrieval/top20_related_patients.csv:ro
-      - ./sample_data:/app/sample_data:ro
+      <<: *backend-environment
+      ADMIN_USERNAME: ${ADMIN_USERNAME:?Set ADMIN_USERNAME in .env.production}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD in .env.production}
+    profiles: ["setup"]
+    restart: "no"
+
+  backend:
+    <<: *backend-runtime
+    expose:
+      - "4000"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4000/api/health/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 10s
     restart: unless-stopped
 
   frontend:
+    image: ${FRONTEND_IMAGE:-patient-verify-frontend:latest}
     build:
       context: ./frontend
       args:
-        # Browser calls same-origin /api; Nginx proxies it to backend:4000.
         VITE_API_URL: /api
-    container_name: patient-verify-frontend
     ports:
-      - "5174:80"
+      - "${WEB_BIND_ADDRESS:-0.0.0.0}:${WEB_PORT:-8080}:80"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+    security_opt:
+      - no-new-privileges:true
     restart: unless-stopped
-
-volumes:
-  backend_data:

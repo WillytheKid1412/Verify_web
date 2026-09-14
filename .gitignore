@@ -1,2 +1,9 @@
 sample_data
-node_modules
+**/node_modules/
+**/dist/
+.env
+.env.production
+.env.local
+.env.*.local
+secrets/
+.runtime/

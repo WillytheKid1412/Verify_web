@@ -1,5 +1,5 @@
 import React from "react";
-import { ChevronRight, Search, ShieldCheck } from "lucide-react";
+import { ChevronRight, LogOut, Search, ShieldCheck, Users } from "lucide-react";
 import { C } from "../theme.js";
 import { reviewColor } from "../constants.js";
 
@@ -15,6 +15,9 @@ export default function QuerySidebar({
   filtered,
   selectedId,
   setSelectedId,
+  user,
+  onLogout,
+  onManageAccounts,
 }) {
   return (
     <aside style={{ width: 300, flexShrink: 0, background: C.navy, color: "white", display: "flex", flexDirection: "column" }}>
@@ -25,6 +28,18 @@ export default function QuerySidebar({
         <div style={{ color: "#8da0ac", fontSize: 11, marginTop: 7 }}>
           {queries.length.toLocaleString("vi-VN")} query · {reviewed}/{candidateCount} kết quả đã xử lý
         </div>
+        <div style={accountSummaryStyle}>
+          <span style={{ minWidth: 0 }}>
+            <strong style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis" }}>{user.username}</strong>
+            {user.role === "admin" ? "Quản trị viên" : "Người đánh giá"}
+          </span>
+          <button onClick={onLogout} type="button" title="Đăng xuất" style={darkIconButtonStyle}><LogOut size={15} /></button>
+        </div>
+        {user.role === "admin" && (
+          <button onClick={onManageAccounts} type="button" style={manageAccountsButtonStyle}>
+            <Users size={14} />Quản lý tài khoản
+          </button>
+        )}
       </div>
       <div style={{ padding: "0 14px 12px" }}>
         <label style={{ fontSize: 10, color: "#8da0ac", fontWeight: 700, textTransform: "uppercase" }}>
@@ -70,6 +85,9 @@ const searchBox = { margin: "0 14px 10px", padding: "8px 10px", background: "#0f
 const searchInput = { border: 0, outline: 0, width: "100%", minWidth: 0, background: "transparent", color: "white" };
 const querySelectStyle = { display: "block", marginTop: 5, width: "100%", padding: "8px 9px", border: "1px solid #2a3d4c", borderRadius: 7, background: "#0f1a22", color: "white", outline: 0 };
 const sidebarIcdStyle = { display: "block", width: "fit-content", marginTop: 3, padding: "1px 5px", borderRadius: 4, background: "#193441", color: "#8FE0D4", fontSize: 9 };
+const accountSummaryStyle = { marginTop: 14, paddingTop: 12, borderTop: "1px solid #2a3d4c", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, color: "#8da0ac", fontSize: 10 };
+const darkIconButtonStyle = { border: "1px solid #2a3d4c", borderRadius: 6, padding: 7, display: "grid", placeItems: "center", background: "#0f1a22", color: "white", cursor: "pointer" };
+const manageAccountsButtonStyle = { marginTop: 8, width: "100%", border: "1px solid #2a3d4c", borderRadius: 6, padding: "8px 9px", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, background: "#193441", color: "#8FE0D4", cursor: "pointer", fontSize: 11, fontWeight: 700 };
 const sidebarItemStyle = (selected) => ({
   display: "flex",
   alignItems: "center",

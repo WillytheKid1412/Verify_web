@@ -20,7 +20,7 @@ export default function ScanViewport({ series, modality, patient }) {
     const controller = new AbortController();
     setImage(null);
     setError("");
-    requestJson(`${API_ORIGIN}${series.sliceUrl}&slice=${slice}`, "Không tải được ảnh", { signal: controller.signal })
+    requestJson(`${API_ORIGIN}${series.sliceUrl}?slice=${slice}`, "Không tải được ảnh", { signal: controller.signal })
       .then(setImage)
       .catch((requestError) => { if (requestError.name !== "AbortError") setError(requestError.message || "Không tải được ảnh"); });
     return () => controller.abort();

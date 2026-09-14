@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import test, { after, before } from "node:test";
+import test, { after } from "node:test";
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 if (databaseUrl) {
@@ -12,8 +12,7 @@ const integration = databaseUrl ? test : test.skip;
 let auth;
 let db;
 
-before(async () => {
-  if (!databaseUrl) return;
+if (databaseUrl) {
   execFileSync(process.execPath, ["scripts/migrate.js"], {
     cwd: process.cwd(),
     env: { ...process.env, DATABASE_URL: databaseUrl, DB_SSL_MODE: "disable" },
@@ -21,7 +20,7 @@ before(async () => {
   auth = await import("../src/repositories/authRepository.js");
   db = await import("../src/db/pool.js");
   await db.query("TRUNCATE audit_events, login_events, sessions, review_events, reviews, batch_queries, verification_batches, retrieval_pairs, retrieval_runs, imaging_series, imaging_studies, image_objects, lab_results, ehr_documents, encounters, patients, users RESTART IDENTITY CASCADE");
-});
+}
 
 after(async () => {
   if (db) await db.closePool();

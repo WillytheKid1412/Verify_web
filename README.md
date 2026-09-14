@@ -1,10 +1,50 @@
 # Hệ thống xác minh bệnh nhân tương tự
 
+## Triển khai cloud một lệnh
+
+Nhánh này dùng PostgreSQL cho tài khoản, session, metadata, retrieval và review;
+ảnh được định danh trong PostgreSQL và đọc từ S3 private. Production Compose
+không mount dữ liệu từ `/mnt` hoặc `sample_data`.
+
+Trên server đã cài Docker Engine và Docker Compose v2:
+
+```bash
+cp .env.production.example .env.production
+# Điền DATABASE_URL, RDS CA, AWS Region/S3 bucket, domain và admin bootstrap.
+chmod 600 .env.production
+./deploy.sh
+```
+
+Script sẽ kiểm tra cấu hình, build hai image, chạy migration, tạo admin ban đầu
+theo cách idempotent, khởi động dịch vụ và chờ readiness. Backend chỉ được expose
+trong Docker network; frontend mặc định lắng nghe cổng `8080` để đặt sau ALB hoặc
+reverse proxy HTTPS.
+
+Yêu cầu trước khi chạy:
+
+- RDS/PostgreSQL đã tồn tại và server kết nối được tới cổng 5432.
+- File CA của RDS tồn tại tại `RDS_CA_CERT_FILE` và user trong container có quyền đọc.
+- EC2/server có IAM role đọc đúng S3 bucket private. Không đưa AWS access key vào frontend.
+- `ALLOWED_ORIGIN` là origin public chính xác, ví dụ `https://verify.example.com`.
+- Nếu chỉ smoke-test bằng HTTP/IP, đặt `SESSION_COOKIE_SECURE=false`; production HTTPS phải để `true`.
+
+Lệnh vận hành:
+
+```bash
+docker compose --env-file .env.production ps
+docker compose --env-file .env.production logs -f backend frontend
+docker compose --env-file .env.production up -d --build
+docker compose --env-file .env.production down
+```
+
+Không dùng `down -v` nếu có volume cần giữ. Import metadata/retrieval và upload ảnh
+S3 là bước riêng; script deploy không tự ý import dữ liệu bệnh nhân.
+
 Ứng dụng web hỗ trợ bác sĩ đối chiếu một **bệnh nhân truy vấn** với lần lượt 20 **bệnh nhân tương tự** do hệ thống truy hồi trả về. Dự án gồm frontend React + Vite và backend Node.js/Express, đóng gói bằng Docker.
 
-> Bản demo đọc trực tiếp dữ liệu raw ở chế độ chỉ đọc. Backend đọc rank và
-> cosine similarity từ artifact Top-20; `backend/src/data/retrieval.json`
-> chọn chính xác các query sẽ được verify trong phiên hiện tại.
+> Bản cloud đọc tài khoản, metadata, Top-20 và kết quả review từ PostgreSQL.
+> Ảnh được giữ trong S3 private; trình duyệt chỉ nhận lát ảnh đã window/resize
+> thông qua API đã xác thực.
 
 ⚠️ Không dùng trực tiếp cho dữ liệu bệnh nhân thật nếu chưa có xác thực, phân quyền, audit log, mã hóa và đánh giá tuân thủ quy định y tế.
 
@@ -106,79 +146,55 @@ Với mỗi cặp query–similar patient, bác sĩ có thể chọn:
 
 Kết quả lưu kèm ghi chú, người review, thời điểm, `query_patient_id`, `similar_patient_id`, `rank` và `similarity_score` để truy vết.
 
-## Dữ liệu nguồn dự kiến
+## Kiến trúc dữ liệu cloud
 
-Mỗi bệnh nhân được đọc từ thư mục dữ liệu raw, theo mẫu trong `sample_data`:
-
-```text
-<patient_id>/
-└── <record_id>/
-    ├── EHR/text.json
-    ├── lab_result/lab.json
-    ├── XQ/<study>/.../meta.json + raw.npy
-    ├── CT/<study>/<series>/meta.json + raw.npy
-    └── MRI/<study>/<series>/meta.json + raw.npy
-```
-
-- Khi phát triển UI, dùng `sample_data` và các PNG preview đi kèm.
-- Khi triển khai dữ liệu thật, backend dùng path `/mnt/disk4/namtn/similar_case_retrieval/working/our_method/data/raw` qua Docker volume chỉ đọc.
-- Dữ liệu verification được lưu tách biệt với dữ liệu raw.
-- Endpoint ảnh chỉ trả về một lát đã window/resize; trình duyệt không nhận file `raw.npy`.
+- PostgreSQL lưu tài khoản, session, metadata bệnh nhân, encounter, EHR, lab,
+  study/series ảnh, Top-20, batch phân công, kết quả review và audit log.
+- S3 private lưu object ảnh. Bảng `image_objects` chỉ giữ bucket/key, kiểu dữ
+  liệu, shape và offset cần thiết để backend đọc đúng byte range của một lát.
+- Backend dùng IAM role của server để đọc S3; không lưu access key trong source
+  code và không phát URL object công khai.
+- Frontend không kết nối trực tiếp PostgreSQL hoặc S3 và không nhận toàn bộ file
+  thể tích. Endpoint ảnh trả về một lát đã window/resize sau khi kiểm tra quyền.
+- Dữ liệu nguồn không được mount vào container. Pipeline import PostgreSQL và
+  upload S3 là công việc riêng, không nằm trong `deploy.sh`.
 
 ## Cấu trúc dự án
 
 ```
 patient-verify-app/
 ├── docker-compose.yml
-├── sample_data/ # Ví dụ cấu trúc dữ liệu và ảnh preview của một bệnh nhân
-├── backend/     # Express API, lớp đọc dữ liệu và lưu kết quả verification
-└── frontend/    # React UI hai panel đối chiếu
+├── deploy.sh                  # Kiểm tra cấu hình và triển khai một lệnh
+├── .env.production.example   # Danh sách biến môi trường, không chứa secret
+├── backend/                   # Express API, PostgreSQL và S3 adapter
+└── frontend/                  # React UI + Nginx reverse proxy /api
 ```
 
-## Chạy bằng Docker (khuyến nghị)
+## API chính
 
-```bash
-docker compose up --build
-```
-
-- Frontend: http://localhost:5174
-- Backend API: http://localhost:4001/api (hoặc cùng-origin `/api` qua frontend tại http://localhost:5174)
-- 10 query được chọn trong `backend/src/data/retrieval.json`; Top-20 và điểm retrieval của từng query đọc từ CSV production.
-- Docker mặc định mount Top-20 production tại
-  `/mnt/disk4/similar_cases_retrieval/data/experiments/patient_fusion/top20_attention_pool_all_patients_v1/top20_related_patients.csv`.
-  Có thể override host path bằng biến `TOPK_HOST_FILE`.
-
-Dừng: `docker compose down`
-Xóa cả dữ liệu đã lưu (verifications): `docker compose down -v`
-
-## Chạy không dùng Docker (phát triển local)
-
-Backend:
-```bash
-cd backend
-npm install
-npm run dev      # http://localhost:4000 (hoặc PORT=4001 npm run dev nếu port 4000 đang bận)
-```
-
-Frontend (terminal khác):
-```bash
-cd frontend
-npm install
-VITE_API_URL=http://localhost:4001/api npm run dev
-```
-
-## API hiện có
-
-| Method | Path                        | Mô tả                                  |
-|--------|------------------------------|-----------------------------------------|
-| GET    | /api/patients                 | Danh sách rút gọn (cho sidebar)         |
-| GET    | /api/patients/:id              | Chi tiết đầy đủ 1 bệnh nhân             |
-| POST   | /api/patients/:id/verify       | Gửi kết quả xác minh `{status, note}`   |
+| Method | Path | Quyền | Mô tả |
+|---|---|---|---|
+| POST | `/api/auth/login` | Công khai | Đăng nhập và tạo session cookie |
+| GET | `/api/auth/me` | Đã đăng nhập | Lấy người dùng hiện tại |
+| POST | `/api/auth/logout` | Đã đăng nhập | Kết thúc session |
+| GET/POST | `/api/auth/users` | Admin | Danh sách/tạo tài khoản |
+| GET | `/api/comparison/queries` | Đã đăng nhập | Query được phân công |
+| GET | `/api/comparison` | Đã đăng nhập | Query và Top-20 |
+| GET | `/api/comparison/:patientId` | Đã đăng nhập | Chi tiết một cặp so sánh |
+| POST | `/api/comparison/:patientId/verify` | Đã đăng nhập | Lưu đánh giá có kiểm soát version |
+| GET | `/api/comparison/export` | Admin | Tải CSV/JSON |
+| GET | `/api/imaging/series/:seriesId/slices` | Đã đăng nhập | Đọc một lát ảnh được phép |
+| GET | `/api/health/live` | Công khai | Liveness |
+| GET | `/api/health/ready` | Công khai | Readiness gồm kết nối database |
 
 `status` hợp lệ: `pending` \| `very_similar` \| `similar` \| `uncertain` \| `dissimilar` \| `very_dissimilar`
 
-### Cập nhật danh sách retrieval và xuất đánh giá
+### Quyền và kết quả đánh giá
 
-- Sửa mảng `query_patient_ids` trong `backend/src/data/retrieval.json`. Mỗi ID phải có trong Top-K CSV và có raw data; web sẽ hiển thị đúng các query này theo thứ tự trong JSON. Với Docker đang chạy, chỉ cần lưu file và refresh web để nạp lại danh sách.
+- Chỉ admin nhìn thấy chức năng tạo tài khoản và tải kết quả CSV/JSON.
+- Reviewer chỉ nhìn thấy batch/query được phân công trong PostgreSQL.
+- Mỗi query phải có đúng 20 dòng retrieval đang hoạt động; backend từ chối
+  session Top-20 thiếu hoặc dư để tránh review sai tập.
 - Mỗi kết quả được bác sĩ đánh giá ở một trong năm mức: `very_similar`, `similar`, `uncertain`, `dissimilar`, `very_dissimilar`.
-- Hai nút **CSV** và **JSON** trong thanh đánh giá tải toàn bộ kết quả hiện tại, gồm rank, retrieval score, mức đánh giá, ghi chú, người review và thời điểm.
+- Kết quả lưu rank, retrieval score, mức đánh giá, ghi chú, reviewer, thời điểm
+  và version. Các thao tác quản trị/xuất file được ghi audit.
