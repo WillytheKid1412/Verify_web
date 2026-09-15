@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import {
   CheckCircle2, ChevronRight, Download, FileText, FlaskConical,
-  Filter, FlagTriangleRight, Image, LogOut, ScanLine, Search, ShieldCheck,
+  Filter, FlagTriangleRight, Image, LayoutDashboard, LogOut, ScanLine, Search, ShieldCheck,
   UserPlus, Users, X, XCircle,
 } from "lucide-react";
 import {
@@ -50,6 +50,7 @@ function VerifyApp({ user, onLogout }) {
   const [loadingSession, setLoadingSession] = useState(true);
   const [showSimilarOnly, setShowSimilarOnly] = useState(false);
   const [showAccounts, setShowAccounts] = useState(false);
+  const [showSidebar, setShowSidebar] = useState(false);
   const [exporting, setExporting] = useState("");
 
   async function loadSession(patientId) {
@@ -92,6 +93,15 @@ function VerifyApp({ user, onLogout }) {
   }, [selectedId, queryPatientId]);
 
   useEffect(() => setNote(candidate?.verification?.note || ""), [candidate]);
+
+  useEffect(() => {
+    if (!showSidebar) return undefined;
+    const closeOnEscape = (event) => {
+      if (event.key === "Escape") setShowSidebar(false);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [showSidebar]);
 
   const selectedSummary = useMemo(
     () => session?.candidates.find((item) => item.patient_id === selectedId),
@@ -155,10 +165,12 @@ function VerifyApp({ user, onLogout }) {
 
   return <main style={{ minHeight: "100vh", display: "flex", background: C.bg, color: C.ink, fontFamily: "'Inter', sans-serif" }}>
     <style>{FONTS}</style>
-    <aside style={{ width: 300, flexShrink: 0, background: C.navy, color: "white", display: "flex", flexDirection: "column" }}>
+    {showSidebar && <div role="presentation" onMouseDown={() => setShowSidebar(false)} style={sidebarBackdropStyle}>
+    <aside aria-label="Bảng điều khiển" onMouseDown={(event) => event.stopPropagation()} style={sidebarDrawerStyle}>
       <div style={{ padding: "18px 16px 10px" }}>
         <div style={{ display: "flex", gap: 8, alignItems: "center", fontWeight: 700, fontSize: 14 }}>
           <ShieldCheck size={17} color="#8FE0D4" />Đối chiếu bệnh nhân
+          <button type="button" onClick={() => setShowSidebar(false)} title="Đóng bảng điều khiển" aria-label="Đóng bảng điều khiển" style={{ ...darkIconButtonStyle, marginLeft: "auto" }}><X size={16} /></button>
         </div>
         <div style={{ color: "#8da0ac", fontSize: 11, marginTop: 7 }}>
           {queries.length.toLocaleString("vi-VN")} query · {reviewed}/{session.candidates.length} kết quả đã xử lý
@@ -167,14 +179,17 @@ function VerifyApp({ user, onLogout }) {
           <span style={{ minWidth: 0 }}><strong style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis" }}>{user.username}</strong>{user.role === "admin" ? "Quản trị viên" : "Người đánh giá"}</span>
           <button onClick={onLogout} title="Đăng xuất" style={darkIconButtonStyle}><LogOut size={15} /></button>
         </div>
-        {user.role === "admin" && <button onClick={() => setShowAccounts(true)} style={manageAccountsButtonStyle}><Users size={14} />Quản lý tài khoản</button>}
+        {user.role === "admin" && <button onClick={() => { setShowSidebar(false); setShowAccounts(true); }} style={manageAccountsButtonStyle}><Users size={14} />Quản lý tài khoản</button>}
       </div>
       <div style={{ padding: "0 14px 12px" }}>
         <label style={{ fontSize: 10, color: "#8da0ac", fontWeight: 700, textTransform: "uppercase" }}>
           Bệnh nhân query
           <select
             value={queryPatientId}
-            onChange={(event) => loadSession(event.target.value)}
+            onChange={(event) => {
+              loadSession(event.target.value);
+              setShowSidebar(false);
+            }}
             disabled={loadingSession || !queries.length}
             style={querySelectStyle}
           >
@@ -190,7 +205,7 @@ function VerifyApp({ user, onLogout }) {
         <input value={candidateSearch} onChange={(event) => setCandidateSearch(event.target.value)} placeholder="Lọc trong Top-5" style={searchInput} />
       </div>
       <div style={{ padding: "4px 8px", overflowY: "auto", flex: 1 }}>
-        {filtered.map((item) => <button key={item.patient_id} onClick={() => setSelectedId(item.patient_id)} style={sidebarItemStyle(selectedId === item.patient_id)}>
+        {filtered.map((item) => <button key={item.patient_id} onClick={() => { setSelectedId(item.patient_id); setShowSidebar(false); }} style={sidebarItemStyle(selectedId === item.patient_id)}>
           <span style={{ color: "#8FE0D4", fontFamily: "monospace", fontSize: 12, width: 28 }}>#{item.rank}</span>
           <span style={{ flex: 1, minWidth: 0 }}>
             <span style={{ display: "block", fontWeight: 600, fontSize: 13 }}>{item.patient_id}</span>
@@ -202,9 +217,11 @@ function VerifyApp({ user, onLogout }) {
         </button>)}
       </div>
     </aside>
+    </div>}
     <section style={{ minWidth: 0, flex: 1, display: "flex", flexDirection: "column" }}>
       <header style={{ padding: "16px 22px 0", background: C.surface, borderBottom: `1px solid ${C.border}` }}>
         <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", fontSize: 13, color: C.inkMuted }}>
+          <button type="button" onClick={() => setShowSidebar(true)} aria-label="Mở bảng điều khiển" style={dashboardButtonStyle}><LayoutDashboard size={15} />Bảng điều khiển</button>
           Query <strong style={{ color: C.ink }}>{session.query.id}</strong><ChevronRight size={14} />
           Kết quả #{selectedSummary?.rank || "—"} <strong style={{ color: C.ink }}>{selectedId || "—"}</strong>
           {selectedSummary && <span style={{ color: C.teal, fontWeight: 700 }}>{(selectedSummary.similarity_score * 100).toFixed(2)}%</span>}
@@ -603,6 +620,9 @@ const similarOnlyButtonStyle = (active, disabled) => ({
 const accountSummaryStyle = { marginTop: 14, paddingTop: 12, borderTop: "1px solid #2a3d4c", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, color: "#8da0ac", fontSize: 10 };
 const darkIconButtonStyle = { border: "1px solid #2a3d4c", borderRadius: 6, padding: 7, display: "grid", placeItems: "center", background: "#0f1a22", color: "white", cursor: "pointer" };
 const manageAccountsButtonStyle = { marginTop: 8, width: "100%", border: "1px solid #2a3d4c", borderRadius: 6, padding: "8px 9px", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, background: "#193441", color: "#8FE0D4", cursor: "pointer", fontSize: 11, fontWeight: 700 };
+const sidebarBackdropStyle = { position: "fixed", inset: 0, zIndex: 15, display: "flex", background: "rgba(5, 15, 22, .38)" };
+const sidebarDrawerStyle = { width: "min(340px, 92vw)", height: "100%", flexShrink: 0, background: C.navy, color: "white", display: "flex", flexDirection: "column", boxShadow: "12px 0 36px rgba(5, 15, 22, .28)" };
+const dashboardButtonStyle = { display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 10px", border: `1px solid ${C.navySoft}`, borderRadius: 7, background: C.navy, color: "white", fontSize: 12, fontWeight: 700, cursor: "pointer" };
 const loginPageStyle = { minHeight: "100vh", display: "grid", placeItems: "center", padding: 20, background: "linear-gradient(135deg, #0b1720, #16313d)", color: C.ink, fontFamily: "'Inter', sans-serif" };
 const loginCardStyle = { width: "min(420px, 100%)", boxSizing: "border-box", padding: 32, borderRadius: 14, background: "white", boxShadow: "0 20px 70px rgba(0,0,0,.28)", display: "grid", gap: 14 };
 const loginIconStyle = { width: 52, height: 52, borderRadius: 12, display: "grid", placeItems: "center", background: C.tealSoft, color: C.teal };
