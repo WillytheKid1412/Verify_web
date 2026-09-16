@@ -138,12 +138,17 @@ patient-verify-app/
 ## Chạy bằng Docker (khuyến nghị)
 
 ```bash
+cp .env.example .env
+# Đổi ADMIN_PASSWORD trong .env trước khi chạy.
 docker compose up --build
 ```
 
 - Frontend: http://localhost:5174
 - Backend API: http://localhost:4001/api (hoặc cùng-origin `/api` qua frontend tại http://localhost:5174)
 - 10 query được chọn trong `backend/src/data/retrieval.json`; Top-20 và điểm retrieval của từng query đọc từ CSV production.
+- Tài khoản admin đầu tiên lấy từ `ADMIN_USERNAME` và `ADMIN_PASSWORD` trong
+  `.env`; mật khẩu phải có ít nhất 12 ký tự. Các tài khoản tạo sau đó được lưu
+  dạng hash trong volume `backend_data`.
 - Docker mặc định mount Top-20 production tại
   `/mnt/disk4/similar_cases_retrieval/data/experiments/patient_fusion/top20_attention_pool_all_patients_v1/top20_related_patients.csv`.
   Có thể override host path bằng biến `TOPK_HOST_FILE`.
@@ -157,6 +162,8 @@ Backend:
 ```bash
 cd backend
 npm install
+export ADMIN_USERNAME=admin
+export ADMIN_PASSWORD='thay-bang-mat-khau-manh-it-nhat-12-ky-tu'
 npm run dev      # http://localhost:4000 (hoặc PORT=4001 npm run dev nếu port 4000 đang bận)
 ```
 
@@ -174,6 +181,10 @@ VITE_API_URL=http://localhost:4001/api npm run dev
 | GET    | /api/patients                 | Danh sách rút gọn (cho sidebar)         |
 | GET    | /api/patients/:id              | Chi tiết đầy đủ 1 bệnh nhân             |
 | POST   | /api/patients/:id/verify       | Gửi kết quả xác minh `{status, note}`   |
+| POST   | /api/auth/login                 | Đăng nhập                               |
+| GET    | /api/auth/me                    | Kiểm tra phiên hiện tại                 |
+| POST   | /api/auth/logout                | Đăng xuất                               |
+| GET/POST | /api/auth/users              | Liệt kê/tạo tài khoản (chỉ admin)       |
 
 `status` hợp lệ: `pending` \| `very_similar` \| `similar` \| `uncertain` \| `dissimilar` \| `very_dissimilar`
 
@@ -181,4 +192,6 @@ VITE_API_URL=http://localhost:4001/api npm run dev
 
 - Sửa mảng `query_patient_ids` trong `backend/src/data/retrieval.json`. Mỗi ID phải có trong Top-K CSV và có raw data; web sẽ hiển thị đúng các query này theo thứ tự trong JSON. Với Docker đang chạy, chỉ cần lưu file và refresh web để nạp lại danh sách.
 - Mỗi kết quả được bác sĩ đánh giá ở một trong năm mức: `very_similar`, `similar`, `uncertain`, `dissimilar`, `very_dissimilar`.
-- Hai nút **CSV** và **JSON** trong thanh đánh giá tải toàn bộ kết quả hiện tại, gồm rank, retrieval score, mức đánh giá, ghi chú, người review và thời điểm.
+- Chỉ admin nhìn thấy và sử dụng được hai nút **CSV** và **JSON**. File tải về
+  gồm rank, retrieval score, mức đánh giá, ghi chú, người review và thời điểm.
+- Chỉ admin có quyền tạo thêm tài khoản `reviewer` hoặc `admin`.

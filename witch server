@@ -1,0 +1,19 @@
+[33mede4e21[m[33m ([m[1;36mHEAD -> [m[1;32mdeploying[m[33m, [m[1;31morigin/deploying[m[33m)[m HEAD@{0}: commit: update to dashboard and UI problems
+[33m1a7ff74[m HEAD@{1}: checkout: moving from main to deploying
+[33m21e5a67[m[33m ([m[1;32mmain[m[33m)[m HEAD@{2}: commit: update to .gitignore
+[33m6a52b81[m[33m ([m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m)[m HEAD@{3}: commit: remove node_modules
+[33m3462107[m HEAD@{4}: commit: remove dist/
+[33m4ea4632[m HEAD@{5}: commit: remove node_modules
+[33m51a6902[m HEAD@{6}: commit: remove node_modules
+[33ma784cec[m HEAD@{7}: commit: synchronize with cloud branch
+[33m6d7f72f[m[33m ([m[1;31morigin/server[m[33m, [m[1;32mserver[m[33m)[m HEAD@{8}: checkout: moving from cloud to main
+[33m71bbd60[m[33m ([m[1;31morigin/cloud[m[33m, [m[1;32mcloud[m[33m)[m HEAD@{9}: commit: updating for cloud
+[33m1a7ff74[m HEAD@{10}: checkout: moving from deploying to cloud
+[33m1a7ff74[m HEAD@{11}: commit: updating
+[33m56b59d5[m HEAD@{12}: commit: Prepare Railway demo deployment
+[33mc54d30c[m HEAD@{13}: commit: updating to deploy
+[33m6d7f72f[m[33m ([m[1;31morigin/server[m[33m, [m[1;32mserver[m[33m)[m HEAD@{14}: checkout: moving from server to deploying
+[33m6d7f72f[m[33m ([m[1;31morigin/server[m[33m, [m[1;32mserver[m[33m)[m HEAD@{15}: checkout: moving from main to server
+[33m6d7f72f[m[33m ([m[1;31morigin/server[m[33m, [m[1;32mserver[m[33m)[m HEAD@{16}: commit: update highlight
+[33m149ecb3[m HEAD@{17}: commit: updating
+[33m9dc6a24[m HEAD@{18}: clone: from git@github-namtn:WillytheKid1412/Verify_web.git

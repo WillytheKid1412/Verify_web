@@ -1,1 +1,6 @@
 sample_data
+node_modules
+dist
+.env
+backend/data/users.json
+backend/data/verifications.json
