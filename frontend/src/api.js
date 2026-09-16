@@ -128,12 +128,12 @@ export async function fetchComparisonCandidate(queryPatientId, id) {
   return res.json();
 }
 
-export async function submitComparisonVerification(queryPatientId, id, { status, note }) {
+export async function submitComparisonVerification(queryPatientId, id, { criteria_scores, overall_similarity, note }) {
   const res = await apiFetch(`${API_URL}/comparison/${encodeURIComponent(id)}/verify`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ query_patient_id: queryPatientId, status, note }),
+    body: JSON.stringify({ query_patient_id: queryPatientId, criteria_scores, overall_similarity, note }),
   });
-  if (!res.ok) throw new Error("Không lưu được kết quả xác minh");
+  if (!res.ok) throw new Error(await errorMessage(res, "Không lưu được kết quả xác minh"));
   return res.json();
 }

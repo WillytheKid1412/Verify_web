@@ -45,3 +45,16 @@ export function setVerification(patientId, { status, note, reviewer }) {
   writeAll(all);
   return all[patientId];
 }
+
+export function setComparisonVerification(patientId, { criteria_scores, overall_similarity, note, reviewer }) {
+  const all = readAll();
+  all[patientId] = {
+    criteria_scores,
+    overall_similarity,
+    note: note || "",
+    reviewer,
+    at: new Date().toISOString(),
+  };
+  writeAll(all);
+  return all[patientId];
+}

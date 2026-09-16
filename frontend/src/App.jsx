@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useState } from "react";
 import {
   CheckCircle2, ChevronRight, Download, FileText, FlaskConical,
-  Filter, FlagTriangleRight, Image, LayoutDashboard, LogOut, ScanLine, Search, ShieldCheck,
-  UserPlus, Users, X, XCircle,
+  Filter, Image, LayoutDashboard, LogOut, ScanLine, Search, ShieldCheck,
+  UserPlus, Users, X,
 } from "lucide-react";
 import {
   createAccount, downloadComparisonExport, fetchComparison, fetchComparisonCandidate,
@@ -10,12 +10,24 @@ import {
   submitComparisonVerification,
 } from "./api.js";
 import { C, FONTS } from "./theme.js";
-import { ActionButton, StatusBadge, tdStyle, thStyle } from "./components/ui.jsx";
+import { StatusBadge, tdStyle, thStyle } from "./components/ui.jsx";
 import ScanViewport from "./components/ScanViewport.jsx";
 
 const tabs = [
   ["ehr", "EHR", FileText], ["labs", "Lab result", FlaskConical],
   ["XQ", "XQ", Image], ["CT", "CT", ScanLine], ["MRI", "MRI", ScanLine],
+];
+
+const reviewCriteria = [
+  ["symptoms", "Triệu chứng"],
+  ["diagnosis", "Chẩn đoán"],
+  ["medications", "Thuốc"],
+  ["ct", "Ảnh CT"],
+  ["xq", "Ảnh XQ"],
+  ["mri", "Ảnh MRI"],
+  ["clinical_course", "Diễn biến lâm sàng"],
+  ["severity", "Mức độ nghiêm trọng"],
+  ["lab_results", "Kết quả xét nghiệm"],
 ];
 
 export default function App() {
@@ -44,6 +56,8 @@ function VerifyApp({ user, onLogout }) {
   const [candidate, setCandidate] = useState(null);
   const [tab, setTab] = useState("ehr");
   const [note, setNote] = useState("");
+  const [criteriaScores, setCriteriaScores] = useState({});
+  const [overallScore, setOverallScore] = useState(null);
   const [candidateSearch, setCandidateSearch] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
@@ -92,7 +106,11 @@ function VerifyApp({ user, onLogout }) {
     return () => controller.abort();
   }, [selectedId, queryPatientId]);
 
-  useEffect(() => setNote(candidate?.verification?.note || ""), [candidate]);
+  useEffect(() => {
+    setNote(candidate?.verification?.note || "");
+    setCriteriaScores(candidate?.verification?.criteria_scores || {});
+    setOverallScore(candidate?.verification?.overall_similarity ?? null);
+  }, [candidate]);
 
   useEffect(() => {
     if (!showSidebar) return undefined;
@@ -114,28 +132,29 @@ function VerifyApp({ user, onLogout }) {
   if (error && !session) return <Centered>Lỗi: {error}</Centered>;
   if (!session) return <Centered>Đang tải Top-5 và dữ liệu raw…</Centered>;
 
-  const status = candidate?.verification?.status || selectedSummary?.verification?.status || "pending";
+  const currentReview = candidate?.verification || selectedSummary?.verification;
+  const overallSaved = currentReview?.overall_similarity;
+  const legacyStatus = currentReview?.status;
   const similarityFilterActive = showSimilarOnly && (tab === "ehr" || tab === "labs");
   const reviewed = session.candidates.filter(
-    (item) => item.verification?.status && item.verification.status !== "pending",
+    (item) => Number.isInteger(item.verification?.overall_similarity),
   ).length;
-  const scoreLevel = [
-    ["very_similar", "Rất tương tự", CheckCircle2, C.teal],
-    ["similar", "Tương tự", CheckCircle2, "#24618A"],
-    ["uncertain", "Chưa rõ", FlagTriangleRight, C.amber],
-    ["dissimilar", "Khác biệt", XCircle, "#9A5A1A"],
-    ["very_dissimilar", "Rất khác", XCircle, C.red],
-  ];
+  const readyToSave = candidate && reviewCriteria.every(([key]) => Number.isInteger(criteriaScores[key]))
+    && Number.isInteger(overallScore);
 
-  async function decide(nextStatus) {
-    if (!candidate) return;
+  async function saveReview() {
+    if (!readyToSave || saving) return;
     setSaving(true);
+    setError("");
     try {
       const saved = await submitComparisonVerification(
-        session.query.id, candidate.patient_id, { status: nextStatus, note },
+        session.query.id, candidate.patient_id,
+        { criteria_scores: criteriaScores, overall_similarity: overallScore, note },
       );
       const verification = {
-        status: saved.status, note: saved.note, reviewer: saved.reviewer, at: saved.at,
+        criteria_scores: saved.criteria_scores,
+        overall_similarity: saved.overall_similarity,
+        note: saved.note, reviewer: saved.reviewer, at: saved.at,
       };
       setCandidate((old) => ({ ...old, verification }));
       setSession((old) => ({
@@ -212,7 +231,7 @@ function VerifyApp({ user, onLogout }) {
             <span style={{ fontSize: 11, color: "#9aabb5" }}>{(item.similarity_score * 100).toFixed(2)}% tương tự</span>
             {!!item.shared_primary_icd_groups?.length && <span style={sidebarIcdStyle}>ICD {item.shared_primary_icd_groups.join(", ")}</span>}
           </span>
-          {item.verification?.status && item.verification.status !== "pending" && <span style={{ width: 7, height: 7, borderRadius: "50%", background: reviewColor(item.verification.status) }} />}
+          {Number.isInteger(item.verification?.overall_similarity) && <span title={`Đã chấm ${item.verification.overall_similarity}/5`} style={{ width: 7, height: 7, borderRadius: "50%", background: C.teal }} />}
           <ChevronRight size={14} color="#81939e" />
         </button>)}
       </div>
@@ -225,7 +244,7 @@ function VerifyApp({ user, onLogout }) {
           Query <strong style={{ color: C.ink }}>{session.query.id}</strong><ChevronRight size={14} />
           Kết quả #{selectedSummary?.rank || "—"} <strong style={{ color: C.ink }}>{selectedId || "—"}</strong>
           {selectedSummary && <span style={{ color: C.teal, fontWeight: 700 }}>{(selectedSummary.similarity_score * 100).toFixed(2)}%</span>}
-          <StatusBadge status={status} />
+          <StatusBadge score={overallSaved} legacyStatus={legacyStatus} />
         </div>
         <nav style={{ marginTop: 14, display: "flex", gap: 4, flexWrap: "wrap" }}>
           {tabs.map(([id, label, Icon]) => <button key={id} onClick={() => setTab(id)} style={tabStyle(tab === id)}><Icon size={15} />{label}</button>)}
@@ -249,9 +268,28 @@ function VerifyApp({ user, onLogout }) {
             ? <PatientPanel title={`Bệnh nhân tương tự #${candidate.rank} · ${(candidate.similarity_score * 100).toFixed(2)}%`} patient={candidate.patient} tab={tab} evidence={candidate.similarity_evidence} similarOnly={similarityFilterActive} side="candidate" />
             : <Centered>Đang tải hồ sơ tương tự…</Centered>}
         </div>}
+      <section aria-label="Phiếu chấm mức độ tương tự" style={reviewPanelStyle}>
+        <div style={{ marginBottom: 12 }}>
+          <strong style={{ fontSize: 14 }}>Đánh giá theo tiêu chí</strong>
+          <div style={{ color: C.inkMuted, fontSize: 11, marginTop: 3 }}>1 = ít tương tự, 5 = rất tương tự. Điểm này do người đánh giá chọn, độc lập với cosine similarity của model.</div>
+        </div>
+        <div style={criteriaGridStyle}>
+          {reviewCriteria.map(([key, label]) => <ScoreSelect
+            key={key}
+            label={label}
+            value={criteriaScores[key]}
+            disabled={!candidate || saving}
+            onChange={(value) => setCriteriaScores((current) => ({ ...current, [key]: value }))}
+          />)}
+          <div style={overallScoreStyle}>
+            <ScoreSelect label="Mức độ tương tự chung" value={overallScore} disabled={!candidate || saving} onChange={setOverallScore} />
+          </div>
+        </div>
+      </section>
       <footer style={{ padding: "12px 22px", display: "flex", flexWrap: "wrap", gap: 9, alignItems: "center", background: C.surface, borderTop: `1px solid ${C.border}` }}>
-        <input value={note} onChange={(event) => setNote(event.target.value)} placeholder="Ghi chú cho kết quả đối chiếu…" style={{ flex: "1 1 240px", minWidth: 170, padding: "9px 11px", borderRadius: 7, border: `1px solid ${C.border}` }} />
-        {scoreLevel.map(([value, label, Icon, color]) => <ActionButton key={value} label={label} icon={Icon} color={color} onClick={() => decide(value)} disabled={saving || !candidate} active={status === value} />)}
+        <input value={note} onChange={(event) => setNote(event.target.value)} placeholder="Ghi chú cho kết quả đối chiếu…" maxLength={5000} style={{ flex: "1 1 240px", minWidth: 170, padding: "9px 11px", borderRadius: 7, border: `1px solid ${C.border}` }} />
+        <button type="button" onClick={saveReview} disabled={!readyToSave || saving} style={saveReviewButtonStyle}><CheckCircle2 size={15} />{saving ? "Đang lưu…" : "Lưu đánh giá"}</button>
+        {!readyToSave && <span style={{ color: C.inkMuted, fontSize: 11 }}>Chấm đủ 9 tiêu chí và mức chung để lưu.</span>}
         {user.role === "admin" && <>
           <button onClick={() => exportResults("csv")} disabled={Boolean(exporting)} style={exportLinkStyle}><Download size={14} />{exporting === "csv" ? "Đang tải…" : "CSV"}</button>
           <button onClick={() => exportResults("json")} disabled={Boolean(exporting)} style={exportLinkStyle}><Download size={14} />{exporting === "json" ? "Đang tải…" : "JSON"}</button>
@@ -261,6 +299,21 @@ function VerifyApp({ user, onLogout }) {
     </section>
     {showAccounts && <AccountManager onClose={() => setShowAccounts(false)} />}
   </main>;
+}
+
+function ScoreSelect({ label, value, onChange, disabled }) {
+  return <label style={scoreLabelStyle}>
+    <span>{label}</span>
+    <select
+      value={value ?? ""}
+      onChange={(event) => onChange(event.target.value ? Number(event.target.value) : null)}
+      disabled={disabled}
+      style={scoreSelectStyle}
+    >
+      <option value="">Chưa chấm</option>
+      {[1, 2, 3, 4, 5].map((score) => <option key={score} value={score}>{score}/5</option>)}
+    </select>
+  </label>;
 }
 
 function LoginPage({ onAuthenticated }) {
@@ -599,7 +652,12 @@ const alignedCandidateHeaderStyle = { background: CANDIDATE_PANEL.header, color:
 const alignedQueryCellStyle = { background: QUERY_PANEL.background, borderLeft: `1px solid ${QUERY_PANEL.border}` };
 const alignedCandidateCellStyle = { background: CANDIDATE_PANEL.background, borderLeft: `1px solid ${CANDIDATE_PANEL.border}` };
 const evidenceChipStyle = { display: "inline-block", padding: "2px 6px", borderRadius: 999, background: "#DFF3EF", color: "#146B60", fontSize: 10, fontWeight: 700 };
-const reviewColor = (status) => ({ very_similar: C.teal, similar: "#24618A", uncertain: C.amber, dissimilar: "#9A5A1A", very_dissimilar: C.red }[status] || C.inkFaint);
+const reviewPanelStyle = { padding: "13px 22px", background: "#FBFCFD", borderTop: `1px solid ${C.border}`, maxHeight: "34vh", overflowY: "auto" };
+const criteriaGridStyle = { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: "10px 14px" };
+const scoreLabelStyle = { display: "grid", gap: 5, fontSize: 11, fontWeight: 700, color: C.inkMuted };
+const scoreSelectStyle = { width: "100%", padding: "7px 9px", borderRadius: 6, border: `1px solid ${C.border}`, background: "white", color: C.ink, fontSize: 12 };
+const overallScoreStyle = { gridColumn: "1 / -1", paddingTop: 10, borderTop: `1px solid ${C.border}`, maxWidth: 300 };
+const saveReviewButtonStyle = { display: "inline-flex", alignItems: "center", gap: 6, padding: "9px 13px", border: 0, borderRadius: 7, background: C.teal, color: "white", fontSize: 12, fontWeight: 700, cursor: "pointer" };
 const similarOnlyButtonStyle = (active, disabled) => ({
   marginLeft: "auto",
   border: `2px solid ${active ? "#08776D" : C.teal}`,

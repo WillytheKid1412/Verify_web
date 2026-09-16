@@ -99,15 +99,15 @@ Hai panel dùng cùng chiều rộng, cấu trúc header và vùng nội dung t�
 
 ### Kết quả xác minh
 
-Với mỗi cặp query–similar patient, bác sĩ có thể chọn một trong năm mức:
+Với mỗi cặp query–similar patient, bác sĩ chấm từ **1 đến 5** cho từng tiêu chí,
+theo thứ tự: Triệu chứng, Chẩn đoán, Thuốc, Ảnh CT, Ảnh XQ, Ảnh MRI,
+Diễn biến lâm sàng, Mức độ nghiêm trọng, Kết quả xét nghiệm. Cuối cùng chấm
+**Mức độ tương tự chung** từ 1 đến 5. Chỉ có thể lưu khi đã chấm đủ 10 mục.
 
-- `Rất tương tự`
-- `Tương tự`
-- `Chưa rõ`
-- `Khác biệt`
-- `Rất khác`
-
-Kết quả lưu kèm ghi chú, người review, thời điểm, `query_patient_id`, `similar_patient_id`, `rank` và `similarity_score` để truy vết.
+Kết quả lưu kèm ghi chú, người review, thời điểm, `query_patient_id`,
+`similar_patient_id`, `rank` và `similarity_score` gốc để truy vết. Điểm đánh
+giá của bác sĩ độc lập với cosine similarity của model. Đánh giá theo dạng mức
+cũ, nếu có, được giữ nguyên cho đến khi chấm lại và xuất ở cột riêng.
 
 ## Đăng nhập và phân quyền
 
@@ -243,12 +243,34 @@ VITE_API_URL=http://localhost:4001/api npm run dev
 | GET    | /api/patients                 | Danh sách rút gọn (cho sidebar)         |
 | GET    | /api/patients/:id              | Chi tiết đầy đủ 1 bệnh nhân             |
 | POST   | /api/patients/:id/verify       | Gửi kết quả xác minh `{status, note}`   |
+| POST   | /api/comparison/:id/verify     | Lưu 9 điểm tiêu chí, điểm chung và ghi chú |
 | GET    | /api/comparison/export         | Tải CSV/JSON kết quả (chỉ admin)        |
 
-`status` hợp lệ: `pending` \| `very_similar` \| `similar` \| `uncertain` \| `dissimilar` \| `very_dissimilar`
+Payload mới cho `/api/comparison/:id/verify`:
+
+```json
+{
+  "query_patient_id": "24179852",
+  "criteria_scores": {
+    "symptoms": 4,
+    "diagnosis": 5,
+    "medications": 3,
+    "ct": 4,
+    "xq": 2,
+    "mri": 3,
+    "clinical_course": 4,
+    "severity": 4,
+    "lab_results": 5
+  },
+  "overall_similarity": 4,
+  "note": "Đã đối chiếu"
+}
+```
 
 ### Cập nhật danh sách retrieval và xuất đánh giá
 
 - Sửa mảng `query_patient_ids` trong `backend/src/data/retrieval.json` và giữ đúng 5 ID. Mỗi ID phải có trong CSV và có raw data; web hiển thị theo thứ tự trong JSON, mỗi ID chỉ có rank 1–5. Với Docker đang chạy, chỉ cần lưu file và refresh web để nạp lại danh sách.
-- Mỗi kết quả được bác sĩ đánh giá ở một trong năm mức: `very_similar`, `similar`, `uncertain`, `dissimilar`, `very_dissimilar`.
-- Hai nút **CSV** và **JSON** chỉ hiển thị cho admin và tải toàn bộ 5 kết quả hiện tại, gồm rank, retrieval score, mức đánh giá, ghi chú, người review và thời điểm.
+- Mỗi kết quả có 9 điểm tiêu chí và một điểm tương tự chung, đều là số nguyên 1–5.
+- Hai nút **CSV** và **JSON** chỉ hiển thị cho admin và tải toàn bộ 5 kết quả hiện tại,
+  gồm rank, retrieval score, 10 điểm đánh giá, mức cũ (nếu có), ghi chú, người
+  review và thời điểm.
