@@ -1,17 +1,13 @@
 import React from "react";
-import { Clock, CheckCircle2, XCircle, FlagTriangleRight } from "lucide-react";
+import { Clock, CheckCircle2, FlagTriangleRight } from "lucide-react";
 import { C } from "../theme.js";
 
-export function StatusBadge({ status }) {
-  const map = {
-    pending: { label: "Chờ đánh giá", bg: C.amberSoft, fg: "#8A6413", icon: Clock },
-    very_similar: { label: "Rất tương tự", bg: C.tealSoft, fg: "#0B6C62", icon: CheckCircle2 },
-    similar: { label: "Tương tự", bg: "#E8F2FA", fg: "#24618A", icon: CheckCircle2 },
-    uncertain: { label: "Chưa rõ", bg: C.amberSoft, fg: "#8A6413", icon: FlagTriangleRight },
-    dissimilar: { label: "Khác biệt", bg: "#F9EEE7", fg: "#9A5A1A", icon: XCircle },
-    very_dissimilar: { label: "Rất khác biệt", bg: C.redSoft, fg: "#8F332B", icon: XCircle },
-  };
-  const s = map[status] || map.pending;
+export function StatusBadge({ score, legacyStatus }) {
+  const s = Number.isInteger(score) && score >= 1 && score <= 5
+    ? { label: `Đã chấm ${score}/5`, bg: C.tealSoft, fg: "#0B6C62", icon: CheckCircle2 }
+    : legacyStatus && legacyStatus !== "pending"
+      ? { label: "Cần chấm lại", bg: C.amberSoft, fg: "#8A6413", icon: FlagTriangleRight }
+      : { label: "Chưa đánh giá", bg: "#EDF0F1", fg: C.inkFaint, icon: Clock };
   const Icon = s.icon;
   return (
     <span

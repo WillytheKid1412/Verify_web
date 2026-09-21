@@ -1,0 +1,6 @@
+services:
+  backend:
+    environment:
+      LLM_RETRIEVAL_ROOT: /app/llm_retrieval
+    volumes:
+      - /mnt/disk4/similar_cases_retrieval/data/ehr/genai_ranking/gemini_5queries_batch100_20260919_v3/full_call_P01262_100_top10:/app/llm_retrieval:ro

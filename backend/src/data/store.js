@@ -45,3 +45,25 @@ export function setVerification(patientId, { status, note, reviewer }) {
   writeAll(all);
   return all[patientId];
 }
+
+export function setComparisonVerification(patientId, {
+  criteria_scores: criteriaScores,
+  overall_similarity: overallSimilarity,
+  note,
+  reviewer,
+}) {
+  const all = readAll();
+  const previous = all[patientId] || {};
+  all[patientId] = {
+    criteria_scores: criteriaScores,
+    overall_similarity: overallSimilarity,
+    ...(previous.legacy_status || previous.status
+      ? { legacy_status: previous.legacy_status || previous.status }
+      : {}),
+    note: note || "",
+    reviewer: reviewer || "unknown",
+    at: new Date().toISOString(),
+  };
+  writeAll(all);
+  return all[patientId];
+}

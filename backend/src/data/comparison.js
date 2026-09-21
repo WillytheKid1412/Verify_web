@@ -1,7 +1,8 @@
 import fs from "fs";
 import { fileURLToPath } from "url";
 import { getPatient } from "./rawPatients.js";
-import { getVerification, setVerification } from "./store.js";
+import { getVerification, setComparisonVerification } from "./store.js";
+import { REVIEW_CRITERIA } from "./reviewSchema.js";
 
 const RETRIEVAL_FILE = fileURLToPath(new URL("./retrieval.json", import.meta.url));
 const TOPK_FILE = process.env.TOPK_FILE || "";
@@ -351,7 +352,7 @@ export function saveComparisonDecision(queryPatientId, similarPatientId, payload
   const { query, candidates } = loadContext(queryPatientId);
   const candidate = candidates.find((item) => item.patient_id === similarPatientId);
   if (!candidate) return null;
-  const saved = setVerification(`${query.id}:${similarPatientId}`, payload);
+  const saved = setComparisonVerification(`${query.id}:${similarPatientId}`, payload);
   return {
     queryPatientId: query.id,
     similarPatientId,
@@ -363,18 +364,27 @@ export function saveComparisonDecision(queryPatientId, similarPatientId, payload
 
 export function getComparisonExport(queryPatientId) {
   const { query, candidates } = loadContext(queryPatientId);
-  return candidates.map((candidate) => {
-    const review = getVerification(`${query.id}:${candidate.patient_id}`) || {};
-    return {
-      query_patient_id: query.id,
-      similar_patient_id: candidate.patient_id,
-      rank: candidate.rank,
-      similarity_score: candidate.similarity_score,
-      shared_primary_icd_groups: (candidate.shared_primary_icd_groups || []).join("|"),
-      review_level: review.status || "pending",
-      note: review.note || "",
-      reviewer: review.reviewer || "",
-      reviewed_at: review.at || "",
-    };
-  });
+  return candidates.map((candidate) => buildComparisonExportRow(
+    query.id,
+    candidate,
+    getVerification(`${query.id}:${candidate.patient_id}`) || {},
+  ));
+}
+
+export function buildComparisonExportRow(queryId, candidate, review = {}) {
+  return {
+    query_patient_id: queryId,
+    similar_patient_id: candidate.patient_id,
+    rank: candidate.rank,
+    similarity_score: candidate.similarity_score,
+    shared_primary_icd_groups: (candidate.shared_primary_icd_groups || []).join("|"),
+    ...Object.fromEntries(REVIEW_CRITERIA.map(([key]) => [
+      `${key}_score`, review.criteria_scores?.[key] ?? null,
+    ])),
+    overall_similarity: review.overall_similarity ?? null,
+    legacy_review_level: review.legacy_status || review.status || "",
+    note: review.note || "",
+    reviewer: review.reviewer || "",
+    reviewed_at: review.at || "",
+  };
 }
