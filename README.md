@@ -111,6 +111,10 @@ cũ, nếu có, được giữ nguyên cho đến khi chấm lại và xuất �
 
 ## Đăng nhập và phân quyền
 
+- Sau khi đăng nhập, người dùng vào trang **Cổng công cụ lâm sàng** trước.
+  Chọn **Xác minh bệnh nhân** để mở giao diện đối chiếu; các thẻ `Sắp có` là vị
+  trí dành cho tiện ích bổ sung sau này. Nút **Trang chính** trong màn hình
+  verify quay lại cổng công cụ mà không cần đăng nhập lại.
 - Mọi API chứa dữ liệu bệnh nhân đều yêu cầu đăng nhập bằng Bearer token.
 - Tài khoản `reviewer` có thể xem hồ sơ và lưu đánh giá.
 - Chỉ tài khoản `admin` thấy khu vực **Quản lý tài khoản**, được tạo tài khoản mới và được xem/tải kết quả CSV hoặc JSON. Backend vẫn kiểm tra quyền admin nếu gọi endpoint trực tiếp.

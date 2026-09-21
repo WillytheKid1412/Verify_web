@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import {
   CheckCircle2, ChevronRight, Download, FileText, FlaskConical,
-  Filter, Image, LayoutDashboard, LogOut, ScanLine, Search, ShieldCheck,
+  Filter, Home, Image, LayoutDashboard, LogOut, ScanLine, Search, ShieldCheck,
   UserPlus, Users, X,
 } from "lucide-react";
 import {
@@ -33,22 +33,75 @@ const reviewCriteria = [
 export default function App() {
   const [user, setUser] = useState(null);
   const [checkingAuth, setCheckingAuth] = useState(true);
+  const [activeTool, setActiveTool] = useState(null);
 
   useEffect(() => {
     fetchCurrentUser().then(setUser).catch(() => setUser(null)).finally(() => setCheckingAuth(false));
-    const expire = () => setUser(null);
+    const expire = () => {
+      setUser(null);
+      setActiveTool(null);
+    };
     window.addEventListener("auth-expired", expire);
     return () => window.removeEventListener("auth-expired", expire);
   }, []);
 
   if (checkingAuth) return <Centered>Đang kiểm tra phiên đăng nhập…</Centered>;
   if (!user) return <LoginPage onAuthenticated={setUser} />;
-  return <VerifyApp user={user} onLogout={async () => {
-    try { await logout(); } finally { setUser(null); }
-  }} />;
+  const signOut = async () => {
+    try { await logout(); } finally {
+      setUser(null);
+      setActiveTool(null);
+    }
+  };
+  if (activeTool === "patient-verification") {
+    return <VerifyApp user={user} onLogout={signOut} onBackHome={() => setActiveTool(null)} />;
+  }
+  return <UtilityHome user={user} onLogout={signOut} onOpenVerification={() => setActiveTool("patient-verification")} />;
 }
 
-function VerifyApp({ user, onLogout }) {
+function UtilityHome({ user, onLogout, onOpenVerification }) {
+  const futureUtilities = [
+    ["Báo cáo và thống kê", "Theo dõi tiến độ, phân bố điểm và tổng hợp kết quả đánh giá."],
+    ["Tiện ích dữ liệu", "Các công cụ hỗ trợ dữ liệu và quy trình lâm sàng sẽ được bổ sung sau."],
+  ];
+  return <main style={utilityHomeStyle}>
+    <style>{FONTS}</style>
+    <header style={utilityHeaderStyle}>
+      <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
+        <span style={utilityLogoStyle}><ShieldCheck size={23} /></span>
+        <span><strong style={{ display: "block", fontSize: 15 }}>Cổng công cụ lâm sàng</strong><span style={{ color: C.inkMuted, fontSize: 11 }}>Chọn chức năng cần sử dụng</span></span>
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <span style={homeAccountStyle}><strong>{user.username}</strong> · {user.role === "admin" ? "Quản trị viên" : "Người đánh giá"}</span>
+        <button type="button" onClick={onLogout} style={homeLogoutStyle}><LogOut size={15} />Đăng xuất</button>
+      </div>
+    </header>
+    <section style={utilityContentStyle}>
+      <div style={{ maxWidth: 650 }}>
+        <span style={homeEyebrowStyle}>Không gian làm việc</span>
+        <h1 style={{ margin: "10px 0 8px", fontSize: "clamp(25px, 4vw, 38px)", lineHeight: 1.15 }}>Bạn muốn thực hiện công việc nào?</h1>
+        <p style={{ margin: 0, color: C.inkMuted, lineHeight: 1.6, fontSize: 14 }}>Mỗi tiện ích hoạt động độc lập. Bạn có thể quay lại trang này bất cứ lúc nào mà không cần đăng nhập lại.</p>
+      </div>
+      <div style={utilityGridStyle}>
+        <button type="button" onClick={onOpenVerification} style={primaryUtilityCardStyle}>
+          <span style={primaryUtilityIconStyle}><ShieldCheck size={25} /></span>
+          <span style={{ display: "block", marginTop: 22, color: C.teal, fontSize: 10, fontWeight: 800, letterSpacing: 1, textTransform: "uppercase" }}>Đang hoạt động</span>
+          <strong style={{ display: "block", marginTop: 7, color: C.ink, fontSize: 20 }}>Xác minh bệnh nhân</strong>
+          <span style={{ display: "block", marginTop: 8, color: C.inkMuted, fontSize: 13, lineHeight: 1.55 }}>Đối chiếu bệnh nhân query với danh sách bệnh nhân tương tự và chấm điểm theo từng tiêu chí.</span>
+          <span style={openUtilityStyle}>Mở tiện ích <ChevronRight size={16} /></span>
+        </button>
+        {futureUtilities.map(([title, description], index) => <article key={title} aria-disabled="true" style={futureUtilityCardStyle}>
+          <span style={futureUtilityIconStyle}>{index === 0 ? <FileText size={23} /> : <LayoutDashboard size={23} />}</span>
+          <span style={{ display: "block", marginTop: 22, color: C.inkFaint, fontSize: 10, fontWeight: 800, letterSpacing: 1, textTransform: "uppercase" }}>Sắp có</span>
+          <strong style={{ display: "block", marginTop: 7, color: C.ink, fontSize: 18 }}>{title}</strong>
+          <span style={{ display: "block", marginTop: 8, color: C.inkMuted, fontSize: 13, lineHeight: 1.55 }}>{description}</span>
+        </article>)}
+      </div>
+    </section>
+  </main>;
+}
+
+function VerifyApp({ user, onLogout, onBackHome }) {
   const [session, setSession] = useState(null);
   const [queries, setQueries] = useState([]);
   const [queryPatientId, setQueryPatientId] = useState("");
@@ -240,6 +293,7 @@ function VerifyApp({ user, onLogout }) {
     <section style={{ minWidth: 0, flex: 1, display: "flex", flexDirection: "column" }}>
       <header style={{ padding: "16px 22px 0", background: C.surface, borderBottom: `1px solid ${C.border}` }}>
         <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", fontSize: 13, color: C.inkMuted }}>
+          <button type="button" onClick={onBackHome} aria-label="Quay lại trang chính" style={homeNavButtonStyle}><Home size={15} />Trang chính</button>
           <button type="button" onClick={() => setShowSidebar(true)} aria-label="Mở bảng điều khiển" style={dashboardButtonStyle}><LayoutDashboard size={15} />Bảng điều khiển</button>
           Query <strong style={{ color: C.ink }}>{session.query.id}</strong><ChevronRight size={14} />
           Kết quả #{selectedSummary?.rank || "—"} <strong style={{ color: C.ink }}>{selectedId || "—"}</strong>
@@ -681,6 +735,20 @@ const manageAccountsButtonStyle = { marginTop: 8, width: "100%", border: "1px so
 const sidebarBackdropStyle = { position: "fixed", inset: 0, zIndex: 15, display: "flex", background: "rgba(5, 15, 22, .38)" };
 const sidebarDrawerStyle = { width: "min(340px, 92vw)", height: "100%", flexShrink: 0, background: C.navy, color: "white", display: "flex", flexDirection: "column", boxShadow: "12px 0 36px rgba(5, 15, 22, .28)" };
 const dashboardButtonStyle = { display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 10px", border: `1px solid ${C.navySoft}`, borderRadius: 7, background: C.navy, color: "white", fontSize: 12, fontWeight: 700, cursor: "pointer" };
+const homeNavButtonStyle = { display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 10px", border: `1px solid ${C.border}`, borderRadius: 7, background: "white", color: C.inkMuted, fontSize: 12, fontWeight: 700, cursor: "pointer" };
+const utilityHomeStyle = { minHeight: "100vh", background: "linear-gradient(150deg, #F4F8F7 0%, #F8F6F0 55%, #EEF4F7 100%)", color: C.ink, fontFamily: "'Inter', sans-serif" };
+const utilityHeaderStyle = { minHeight: 72, padding: "12px clamp(18px, 4vw, 52px)", boxSizing: "border-box", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 14, background: "rgba(255,255,255,.9)", borderBottom: `1px solid ${C.border}`, boxShadow: "0 3px 18px rgba(22,35,46,.05)" };
+const utilityLogoStyle = { width: 42, height: 42, borderRadius: 11, display: "grid", placeItems: "center", background: C.navy, color: "#8FE0D4" };
+const homeAccountStyle = { padding: "7px 10px", borderRadius: 999, background: C.tealSoft, color: "#0B6C62", fontSize: 11 };
+const homeLogoutStyle = { display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 10px", borderRadius: 7, border: `1px solid ${C.border}`, background: "white", color: C.inkMuted, fontSize: 12, fontWeight: 700, cursor: "pointer" };
+const utilityContentStyle = { width: "min(1120px, calc(100% - 36px))", margin: "0 auto", padding: "clamp(42px, 7vw, 84px) 0 60px" };
+const homeEyebrowStyle = { display: "inline-block", padding: "5px 9px", borderRadius: 999, background: C.tealSoft, color: "#0B6C62", fontSize: 10, fontWeight: 800, letterSpacing: .8, textTransform: "uppercase" };
+const utilityGridStyle = { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))", gap: 18, marginTop: 34 };
+const primaryUtilityCardStyle = { minHeight: 270, padding: 24, textAlign: "left", border: `1px solid ${C.queryBorder || "#B9D8EF"}`, borderRadius: 14, background: "linear-gradient(150deg, #FFFFFF 0%, #EDF6FF 100%)", boxShadow: "0 16px 40px rgba(37,99,166,.12)", fontFamily: "inherit", cursor: "pointer" };
+const futureUtilityCardStyle = { minHeight: 270, boxSizing: "border-box", padding: 24, border: `1px dashed ${C.border}`, borderRadius: 14, background: "rgba(255,255,255,.62)", opacity: .72 };
+const primaryUtilityIconStyle = { width: 48, height: 48, borderRadius: 12, display: "grid", placeItems: "center", background: C.navy, color: "#8FE0D4" };
+const futureUtilityIconStyle = { width: 48, height: 48, borderRadius: 12, display: "grid", placeItems: "center", background: "#EDF0F1", color: C.inkFaint };
+const openUtilityStyle = { display: "flex", alignItems: "center", gap: 4, marginTop: 24, color: C.queryAccent || "#2563A6", fontSize: 12, fontWeight: 800 };
 const loginPageStyle = { minHeight: "100vh", display: "grid", placeItems: "center", padding: 20, background: "linear-gradient(135deg, #0b1720, #16313d)", color: C.ink, fontFamily: "'Inter', sans-serif" };
 const loginCardStyle = { width: "min(420px, 100%)", boxSizing: "border-box", padding: 32, borderRadius: 14, background: "white", boxShadow: "0 20px 70px rgba(0,0,0,.28)", display: "grid", gap: 14 };
 const loginIconStyle = { width: 52, height: 52, borderRadius: 12, display: "grid", placeItems: "center", background: C.tealSoft, color: C.teal };
