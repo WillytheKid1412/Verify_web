@@ -112,12 +112,13 @@ cũ, nếu có, được giữ nguyên cho đến khi chấm lại và xuất �
 ## Đăng nhập và phân quyền
 
 - Sau khi đăng nhập, người dùng vào trang **Cổng công cụ lâm sàng** trước.
-  Chọn **Xác minh bệnh nhân** để mở giao diện đối chiếu; các thẻ `Sắp có` là vị
-  trí dành cho tiện ích bổ sung sau này. Nút **Trang chính** trong màn hình
-  verify quay lại cổng công cụ mà không cần đăng nhập lại.
+  Chọn **Xác minh bệnh nhân** hoặc **Xác minh retrieval LLM** để mở tiện ích
+  tương ứng. Nút **Trang chính** quay lại cổng công cụ mà không cần đăng nhập lại.
 - Mọi API chứa dữ liệu bệnh nhân đều yêu cầu đăng nhập bằng Bearer token.
 - Tài khoản `reviewer` có thể xem hồ sơ và lưu đánh giá.
-- Chỉ tài khoản `admin` thấy khu vực **Quản lý tài khoản**, được tạo tài khoản mới và được xem/tải kết quả CSV hoặc JSON. Backend vẫn kiểm tra quyền admin nếu gọi endpoint trực tiếp.
+- Chỉ tài khoản `admin` thấy thẻ **Quản lý tài khoản** ở trang chính, được tạo
+  tài khoản mới và được xem/tải kết quả CSV hoặc JSON. Khu vực này không còn
+  nằm trong màn hình verify bệnh nhân. Backend vẫn kiểm tra quyền admin nếu gọi endpoint trực tiếp.
 - Mật khẩu được băm bằng `scrypt`; file người dùng và kết quả đánh giá nằm trong volume dữ liệu riêng. Phiên đăng nhập có hạn 12 giờ và bị xóa khi backend khởi động lại.
 
 ## Dữ liệu nguồn dự kiến
@@ -235,6 +236,39 @@ npm install
 VITE_API_URL=http://localhost:4001/api npm run dev
 ```
 
+## Xác minh retrieval LLM
+
+Tiện ích này đọc các response Gemini có dạng `calls/<request_id>.json`. Backend
+parse JSON nằm trong `response.candidates[].content.parts[].text`, đồng thời
+đọc `request_body.json` ở thư mục run để hiển thị context lâm sàng tương ứng
+với query và từng candidate. File nguồn chỉ được đọc; kết quả review được lưu
+riêng trong `DATA_DIR/llm-retrieval-verifications.json`.
+
+Khi chạy backend trực tiếp:
+
+```bash
+export LLM_RETRIEVAL_ROOT=/duong/dan/toi/full_call_P01262_100_top10
+npm run dev
+```
+
+`LLM_RETRIEVAL_ROOT` có thể trỏ vào một file call, một thư mục run, hoặc thư
+mục cha chứa nhiều run. Backend tìm các file JSON bên trong thư mục `calls`.
+
+Khi chạy Docker, cấu hình `docker-compose.override.yml` trên server:
+
+```yaml
+services:
+  backend:
+    environment:
+      LLM_RETRIEVAL_ROOT: /app/llm_retrieval
+    volumes:
+      - /duong/dan/tren/server/toi/genai_ranking:/app/llm_retrieval:ro
+```
+
+Mỗi candidate được chấm mức phù hợp retrieval từ 1–5 và đánh giá riêng độ
+chính xác của nhận xét điểm giống, điểm khác và ICD. Chỉ admin được tải toàn
+bộ kết quả LLM dưới dạng CSV hoặc JSON.
+
 ## API hiện có
 
 | Method | Path                        | Mô tả                                  |
@@ -249,6 +283,10 @@ VITE_API_URL=http://localhost:4001/api npm run dev
 | POST   | /api/patients/:id/verify       | Gửi kết quả xác minh `{status, note}`   |
 | POST   | /api/comparison/:id/verify     | Lưu 9 điểm tiêu chí, điểm chung và ghi chú |
 | GET    | /api/comparison/export         | Tải CSV/JSON kết quả (chỉ admin)        |
+| GET    | /api/llm-retrieval             | Danh sách LLM call                      |
+| GET    | /api/llm-retrieval/:requestId  | Chi tiết ranking và context             |
+| POST   | /api/llm-retrieval/:requestId/candidates/:id/verify | Lưu đánh giá LLM |
+| GET    | /api/llm-retrieval/export      | Tải đánh giá LLM (chỉ admin)            |
 
 Payload mới cho `/api/comparison/:id/verify`:
 

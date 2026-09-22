@@ -1,5 +1,8 @@
 sample_data
 test
+!backend/test/
+!backend/test/*.test.js
 **/node_modules/
 **/dist/
 .env
+docker-compose.override.yml

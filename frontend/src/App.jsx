@@ -1,13 +1,14 @@
 import React, { useEffect, useMemo, useState } from "react";
 import {
-  CheckCircle2, ChevronRight, Download, FileText, FlaskConical,
+  Bot, CheckCircle2, ChevronRight, Download, FileText, FlaskConical,
   Filter, Home, Image, LayoutDashboard, LogOut, ScanLine, Search, ShieldCheck,
   UserPlus, Users, X,
 } from "lucide-react";
 import {
-  createAccount, downloadComparisonExport, fetchComparison, fetchComparisonCandidate,
+  createAccount, downloadComparisonExport, downloadLlmRetrievalExport,
+  fetchComparison, fetchComparisonCandidate, fetchLlmRetrievalCall, fetchLlmRetrievalCalls,
   fetchComparisonQueries, fetchCurrentUser, fetchUsers, login, logout,
-  submitComparisonVerification,
+  submitComparisonVerification, submitLlmRetrievalReview,
 } from "./api.js";
 import { C, FONTS } from "./theme.js";
 import { StatusBadge, tdStyle, thStyle } from "./components/ui.jsx";
@@ -34,12 +35,14 @@ export default function App() {
   const [user, setUser] = useState(null);
   const [checkingAuth, setCheckingAuth] = useState(true);
   const [activeTool, setActiveTool] = useState(null);
+  const [showAccounts, setShowAccounts] = useState(false);
 
   useEffect(() => {
     fetchCurrentUser().then(setUser).catch(() => setUser(null)).finally(() => setCheckingAuth(false));
     const expire = () => {
       setUser(null);
       setActiveTool(null);
+      setShowAccounts(false);
     };
     window.addEventListener("auth-expired", expire);
     return () => window.removeEventListener("auth-expired", expire);
@@ -51,18 +54,30 @@ export default function App() {
     try { await logout(); } finally {
       setUser(null);
       setActiveTool(null);
+      setShowAccounts(false);
     }
   };
   if (activeTool === "patient-verification") {
     return <VerifyApp user={user} onLogout={signOut} onBackHome={() => setActiveTool(null)} />;
   }
-  return <UtilityHome user={user} onLogout={signOut} onOpenVerification={() => setActiveTool("patient-verification")} />;
+  if (activeTool === "llm-retrieval-verification") {
+    return <LlmRetrievalApp user={user} onLogout={signOut} onBackHome={() => setActiveTool(null)} />;
+  }
+  return <>
+    <UtilityHome
+      user={user}
+      onLogout={signOut}
+      onOpenVerification={() => setActiveTool("patient-verification")}
+      onOpenLlmVerification={() => setActiveTool("llm-retrieval-verification")}
+      onManageAccounts={() => setShowAccounts(true)}
+    />
+    {showAccounts && <AccountManager onClose={() => setShowAccounts(false)} />}
+  </>;
 }
 
-function UtilityHome({ user, onLogout, onOpenVerification }) {
+function UtilityHome({ user, onLogout, onOpenVerification, onOpenLlmVerification, onManageAccounts }) {
   const futureUtilities = [
     ["Báo cáo và thống kê", "Theo dõi tiến độ, phân bố điểm và tổng hợp kết quả đánh giá."],
-    ["Tiện ích dữ liệu", "Các công cụ hỗ trợ dữ liệu và quy trình lâm sàng sẽ được bổ sung sau."],
   ];
   return <main style={utilityHomeStyle}>
     <style>{FONTS}</style>
@@ -90,6 +105,20 @@ function UtilityHome({ user, onLogout, onOpenVerification }) {
           <span style={{ display: "block", marginTop: 8, color: C.inkMuted, fontSize: 13, lineHeight: 1.55 }}>Đối chiếu bệnh nhân query với danh sách bệnh nhân tương tự và chấm điểm theo từng tiêu chí.</span>
           <span style={openUtilityStyle}>Mở tiện ích <ChevronRight size={16} /></span>
         </button>
+        <button type="button" onClick={onOpenLlmVerification} style={llmUtilityCardStyle}>
+          <span style={llmUtilityIconStyle}><Bot size={25} /></span>
+          <span style={{ display: "block", marginTop: 22, color: "#7652A8", fontSize: 10, fontWeight: 800, letterSpacing: 1, textTransform: "uppercase" }}>Đang hoạt động</span>
+          <strong style={{ display: "block", marginTop: 7, color: C.ink, fontSize: 20 }}>Xác minh retrieval LLM</strong>
+          <span style={{ display: "block", marginTop: 8, color: C.inkMuted, fontSize: 13, lineHeight: 1.55 }}>Kiểm tra ranking, giải thích điểm giống/khác và đánh giá ICD do mô hình ngôn ngữ sinh ra.</span>
+          <span style={{ ...openUtilityStyle, color: "#7652A8" }}>Mở tiện ích <ChevronRight size={16} /></span>
+        </button>
+        {user.role === "admin" && <button type="button" onClick={onManageAccounts} style={adminUtilityCardStyle}>
+          <span style={adminUtilityIconStyle}><Users size={25} /></span>
+          <span style={{ display: "block", marginTop: 22, color: "#146B60", fontSize: 10, fontWeight: 800, letterSpacing: 1, textTransform: "uppercase" }}>Chỉ quản trị viên</span>
+          <strong style={{ display: "block", marginTop: 7, color: C.ink, fontSize: 20 }}>Quản lý tài khoản</strong>
+          <span style={{ display: "block", marginTop: 8, color: C.inkMuted, fontSize: 13, lineHeight: 1.55 }}>Tạo tài khoản reviewer hoặc quản trị viên và xem danh sách người dùng.</span>
+          <span style={{ ...openUtilityStyle, color: "#146B60" }}>Mở quản lý <ChevronRight size={16} /></span>
+        </button>}
         {futureUtilities.map(([title, description], index) => <article key={title} aria-disabled="true" style={futureUtilityCardStyle}>
           <span style={futureUtilityIconStyle}>{index === 0 ? <FileText size={23} /> : <LayoutDashboard size={23} />}</span>
           <span style={{ display: "block", marginTop: 22, color: C.inkFaint, fontSize: 10, fontWeight: 800, letterSpacing: 1, textTransform: "uppercase" }}>Sắp có</span>
@@ -116,7 +145,6 @@ function VerifyApp({ user, onLogout, onBackHome }) {
   const [saving, setSaving] = useState(false);
   const [loadingSession, setLoadingSession] = useState(true);
   const [showSimilarOnly, setShowSimilarOnly] = useState(false);
-  const [showAccounts, setShowAccounts] = useState(false);
   const [showSidebar, setShowSidebar] = useState(false);
   const [exporting, setExporting] = useState("");
 
@@ -251,7 +279,6 @@ function VerifyApp({ user, onLogout, onBackHome }) {
           <span style={{ minWidth: 0 }}><strong style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis" }}>{user.username}</strong>{user.role === "admin" ? "Quản trị viên" : "Người đánh giá"}</span>
           <button onClick={onLogout} title="Đăng xuất" style={darkIconButtonStyle}><LogOut size={15} /></button>
         </div>
-        {user.role === "admin" && <button onClick={() => { setShowSidebar(false); setShowAccounts(true); }} style={manageAccountsButtonStyle}><Users size={14} />Quản lý tài khoản</button>}
       </div>
       <div style={{ padding: "0 14px 12px" }}>
         <label style={{ fontSize: 10, color: "#8da0ac", fontWeight: 700, textTransform: "uppercase" }}>
@@ -351,7 +378,6 @@ function VerifyApp({ user, onLogout, onBackHome }) {
       </footer>
       {error && <div style={{ color: C.red, padding: "0 22px 10px", background: C.surface, fontSize: 12 }}>{error}</div>}
     </section>
-    {showAccounts && <AccountManager onClose={() => setShowAccounts(false)} />}
   </main>;
 }
 
@@ -368,6 +394,229 @@ function ScoreSelect({ label, value, onChange, disabled }) {
       {[1, 2, 3, 4, 5].map((score) => <option key={score} value={score}>{score}/5</option>)}
     </select>
   </label>;
+}
+
+const llmAccuracyOptions = [
+  ["accurate", "Chính xác"],
+  ["partial", "Đúng một phần"],
+  ["inaccurate", "Không chính xác"],
+  ["uncertain", "Cần xem lại"],
+];
+
+function LlmRetrievalApp({ user, onLogout, onBackHome }) {
+  const [catalogue, setCatalogue] = useState(null);
+  const [selectedRequestId, setSelectedRequestId] = useState("");
+  const [call, setCall] = useState(null);
+  const [selectedPatientId, setSelectedPatientId] = useState("");
+  const [review, setReview] = useState({});
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [exporting, setExporting] = useState("");
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    fetchLlmRetrievalCalls().then((data) => {
+      if (!active) return;
+      setCatalogue(data);
+      setSelectedRequestId(data.calls?.[0]?.request_id || "");
+    }).catch((requestError) => active && setError(requestError.message)).finally(() => active && setLoading(false));
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    if (!selectedRequestId) {
+      setCall(null);
+      return undefined;
+    }
+    let active = true;
+    setLoading(true);
+    setError("");
+    setCall(null);
+    setSelectedPatientId("");
+    fetchLlmRetrievalCall(selectedRequestId).then((data) => {
+      if (!active) return;
+      setCall(data);
+      setSelectedPatientId(data.ranking?.[0]?.patient_id || "");
+    }).catch((requestError) => active && setError(requestError.message)).finally(() => active && setLoading(false));
+    return () => { active = false; };
+  }, [selectedRequestId]);
+
+  const candidate = useMemo(
+    () => call?.ranking.find((item) => item.patient_id === selectedPatientId),
+    [call, selectedPatientId],
+  );
+
+  useEffect(() => {
+    setReview(candidate?.verification || {});
+  }, [candidate]);
+
+  const readyToSave = candidate
+    && Number.isInteger(review.retrieval_relevance)
+    && ["similarities_accuracy", "differences_accuracy", "icd_accuracy"]
+      .every((key) => llmAccuracyOptions.some(([value]) => value === review[key]));
+
+  async function saveReview() {
+    if (!readyToSave || saving) return;
+    setSaving(true);
+    setError("");
+    try {
+      const saved = await submitLlmRetrievalReview(call.request_id, candidate.patient_id, review);
+      setReview(saved);
+      setCall((current) => ({
+        ...current,
+        ranking: current.ranking.map((item) => (
+          item.patient_id === candidate.patient_id ? { ...item, verification: saved } : item
+        )),
+      }));
+      setCatalogue((current) => ({
+        ...current,
+        calls: current.calls.map((item) => item.request_id === call.request_id
+          ? {
+            ...item,
+            reviewed_count: call.ranking.filter((entry) => (
+              entry.patient_id === candidate.patient_id || entry.verification
+            )).length,
+          }
+          : item),
+      }));
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function exportReviews(format) {
+    setExporting(format);
+    setError("");
+    try { await downloadLlmRetrievalExport(format); }
+    catch (requestError) { setError(requestError.message); }
+    finally { setExporting(""); }
+  }
+
+  return <main style={llmPageStyle}>
+    <style>{FONTS}</style>
+    <header style={llmHeaderStyle}>
+      <div style={{ display: "flex", alignItems: "center", gap: 9, flexWrap: "wrap" }}>
+        <button type="button" onClick={onBackHome} style={homeNavButtonStyle}><Home size={15} />Trang chính</button>
+        <span style={llmHeaderIconStyle}><Bot size={19} /></span>
+        <span><strong style={{ display: "block", fontSize: 14 }}>Xác minh retrieval LLM</strong><span style={{ color: C.inkMuted, fontSize: 10 }}>Đánh giá ranking và nội dung giải thích của mô hình</span></span>
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        {user.role === "admin" && <>
+          <button type="button" onClick={() => exportReviews("csv")} disabled={Boolean(exporting)} style={exportLinkStyle}><Download size={14} />{exporting === "csv" ? "Đang tải…" : "CSV"}</button>
+          <button type="button" onClick={() => exportReviews("json")} disabled={Boolean(exporting)} style={exportLinkStyle}><Download size={14} />{exporting === "json" ? "Đang tải…" : "JSON"}</button>
+        </>}
+        <span style={homeAccountStyle}><strong>{user.username}</strong> · {user.role === "admin" ? "Quản trị viên" : "Người đánh giá"}</span>
+        <button type="button" onClick={onLogout} style={homeLogoutStyle}><LogOut size={15} />Đăng xuất</button>
+      </div>
+    </header>
+
+    <section style={llmToolbarStyle}>
+      <label style={{ ...scoreLabelStyle, minWidth: 280, flex: "1 1 360px" }}>LLM call
+        <select value={selectedRequestId} onChange={(event) => setSelectedRequestId(event.target.value)} style={scoreSelectStyle} disabled={!catalogue?.calls?.length}>
+          {(catalogue?.calls || []).map((item) => <option key={item.request_id} value={item.request_id}>
+            Query {item.query_patient_id} · {item.model_version || "model không rõ"} · {item.reviewed_count}/{item.candidate_count} đã review
+          </option>)}
+        </select>
+      </label>
+      {catalogue && <span style={{ color: C.inkMuted, fontSize: 11 }}>{catalogue.calls.length} call hợp lệ{catalogue.invalid_file_count ? ` · ${catalogue.invalid_file_count} file lỗi` : ""}</span>}
+    </section>
+
+    {!loading && catalogue && !catalogue.configured && <LlmEmptyState onBackHome={onBackHome} message="Server chưa cấu hình LLM_RETRIEVAL_ROOT." />}
+    {!loading && catalogue?.configured && !catalogue.calls.length && <LlmEmptyState onBackHome={onBackHome} message="Không tìm thấy file calls/*.json hợp lệ trong nguồn đã cấu hình." />}
+    {loading && !call && <Centered>Đang đọc kết quả retrieval của LLM…</Centered>}
+    {call && <section style={llmWorkspaceStyle}>
+      <aside style={llmRankingStyle}>
+        <div style={{ padding: "14px 14px 8px", borderBottom: `1px solid ${C.border}` }}>
+          <strong style={{ fontSize: 12 }}>Ranking Top-{call.ranking.length}</strong>
+          <div style={{ color: C.inkMuted, fontSize: 10, marginTop: 3 }}>Query {call.query_icd_assessment.patient_id} · ICD {call.query_icd_assessment.icd || "—"}</div>
+        </div>
+        <div style={{ overflowY: "auto", padding: 8 }}>
+          {call.ranking.map((item) => <button type="button" key={item.patient_id} onClick={() => setSelectedPatientId(item.patient_id)} style={llmRankItemStyle(item.patient_id === selectedPatientId)}>
+            <span style={llmRankNumberStyle}>#{item.rank}</span>
+            <span style={{ flex: 1, minWidth: 0 }}><strong style={{ display: "block" }}>{item.patient_id}</strong><span style={{ display: "block", marginTop: 2, color: C.inkMuted, fontSize: 10 }}>ICD {item.icd_assessment?.icd || "—"}</span></span>
+            {item.verification && <span title={`Đã chấm ${item.verification.retrieval_relevance}/5`} style={reviewedDotStyle} />}
+            <ChevronRight size={14} color={C.inkFaint} />
+          </button>)}
+        </div>
+      </aside>
+
+      {candidate && <div style={llmDetailStyle}>
+        <section style={llmSummaryGridStyle}>
+          <LlmIcdCard title={`ICD query · ${call.query_icd_assessment.patient_id}`} assessment={call.query_icd_assessment} tone="query" />
+          <LlmIcdCard title={`ICD candidate · ${candidate.patient_id}`} assessment={candidate.icd_assessment} tone="candidate" />
+        </section>
+
+        <section style={llmContextGridStyle}>
+          <ClinicalContext title={`Hồ sơ query · ${call.query_icd_assessment.patient_id}`} value={call.query_context} tone="query" />
+          <ClinicalContext title={`Hồ sơ candidate · ${candidate.patient_id}`} value={candidate.patient_context} tone="candidate" />
+        </section>
+
+        <section style={llmExplanationGridStyle}>
+          <LlmTextCard title="Điểm giống do LLM nhận xét" value={candidate.similarities} evidence={[...(candidate.query_evidence || []), ...(candidate.candidate_evidence || [])]} color="#146B60" background="#F0FAF7" />
+          <LlmTextCard title="Điểm khác do LLM nhận xét" value={candidate.differences} color="#8A5B10" background="#FFF8ED" />
+          <LlmTextCard title="Giới hạn do LLM nêu" value={candidate.limitations || "LLM không nêu giới hạn."} color="#65428A" background="#F7F2FC" />
+        </section>
+
+        <section style={llmReviewStyle}>
+          <div><strong style={{ fontSize: 14 }}>Phiếu xác minh kết quả LLM</strong><div style={{ marginTop: 3, color: C.inkMuted, fontSize: 11 }}>Chấm mức phù hợp của candidate và kiểm tra riêng từng phần giải thích.</div></div>
+          <div style={llmReviewGridStyle}>
+            <ScoreSelect label="Mức phù hợp retrieval" value={review.retrieval_relevance} disabled={saving} onChange={(value) => setReview((current) => ({ ...current, retrieval_relevance: value }))} />
+            <AccuracySelect label="Nhận xét điểm giống" value={review.similarities_accuracy} disabled={saving} onChange={(value) => setReview((current) => ({ ...current, similarities_accuracy: value }))} />
+            <AccuracySelect label="Nhận xét điểm khác" value={review.differences_accuracy} disabled={saving} onChange={(value) => setReview((current) => ({ ...current, differences_accuracy: value }))} />
+            <AccuracySelect label="Đánh giá ICD" value={review.icd_accuracy} disabled={saving} onChange={(value) => setReview((current) => ({ ...current, icd_accuracy: value }))} />
+          </div>
+          <div style={{ display: "flex", gap: 9, alignItems: "center", flexWrap: "wrap" }}>
+            <input value={review.note || ""} onChange={(event) => setReview((current) => ({ ...current, note: event.target.value }))} maxLength={5000} placeholder="Ghi chú cho kết quả LLM…" style={{ ...loginInputStyle, flex: "1 1 300px" }} />
+            <button type="button" onClick={saveReview} disabled={!readyToSave || saving} style={{ ...saveReviewButtonStyle, opacity: !readyToSave || saving ? 0.55 : 1 }}><CheckCircle2 size={15} />{saving ? "Đang lưu…" : "Lưu xác minh"}</button>
+          </div>
+          {!readyToSave && <span style={{ color: C.inkMuted, fontSize: 10 }}>Chọn đủ điểm phù hợp và ba đánh giá nội dung để lưu.</span>}
+        </section>
+      </div>}
+    </section>}
+    {error && <div role="alert" style={llmErrorStyle}>{error}</div>}
+  </main>;
+}
+
+function AccuracySelect({ label, value, onChange, disabled }) {
+  return <label style={scoreLabelStyle}>{label}
+    <select value={value || ""} onChange={(event) => onChange(event.target.value)} disabled={disabled} style={scoreSelectStyle}>
+      <option value="">Chưa đánh giá</option>
+      {llmAccuracyOptions.map(([option, text]) => <option key={option} value={option}>{text}</option>)}
+    </select>
+  </label>;
+}
+
+function LlmIcdCard({ title, assessment, tone }) {
+  const palette = tone === "query" ? QUERY_PANEL : CANDIDATE_PANEL;
+  return <article style={{ padding: 14, borderRadius: 9, border: `1px solid ${palette.border}`, background: palette.background }}>
+    <strong style={{ color: palette.accent, fontSize: 12 }}>{title}</strong>
+    <div style={{ marginTop: 7, fontSize: 11 }}><b>{assessment?.status || "—"}</b> · Visit {assessment?.visit || "—"}</div>
+    <div style={{ marginTop: 6, color: C.inkMuted, fontSize: 12, lineHeight: 1.5 }}>{assessment?.reason || "Không có nhận xét ICD."}</div>
+    {!!assessment?.evidence?.length && <div style={{ marginTop: 7 }}>{assessment.evidence.map((item) => <span key={item} style={{ ...evidenceChipStyle, marginRight: 4 }}>{item}</span>)}</div>}
+  </article>;
+}
+
+function ClinicalContext({ title, value, tone }) {
+  const palette = tone === "query" ? QUERY_PANEL : CANDIDATE_PANEL;
+  return <article style={{ minWidth: 0, borderRadius: 9, border: `1px solid ${palette.border}`, background: palette.background, overflow: "hidden" }}>
+    <header style={{ padding: "10px 12px", background: palette.header, color: palette.accent, fontSize: 12, fontWeight: 800 }}>{title}</header>
+    <div style={clinicalContextTextStyle}>{value || "Không tìm thấy context trong request_body.json."}</div>
+  </article>;
+}
+
+function LlmTextCard({ title, value, evidence = [], color, background }) {
+  return <article style={{ padding: 13, borderRadius: 9, border: `1px solid ${C.border}`, background }}>
+    <strong style={{ color, fontSize: 11, textTransform: "uppercase" }}>{title}</strong>
+    <div style={{ marginTop: 7, fontSize: 12, lineHeight: 1.55 }}>{value || "Không có nội dung."}</div>
+    {!!evidence.length && <div style={{ marginTop: 8 }}>{[...new Set(evidence)].map((item) => <span key={item} style={{ ...evidenceChipStyle, marginRight: 4 }}>{item}</span>)}</div>}
+  </article>;
+}
+
+function LlmEmptyState({ message, onBackHome }) {
+  return <section style={llmEmptyStyle}><Bot size={34} color="#7652A8" /><strong>{message}</strong><span>Hãy mount thư mục run vào container và đặt biến môi trường trước khi sử dụng tiện ích này.</span><button type="button" onClick={onBackHome} style={homeNavButtonStyle}><Home size={15} />Về trang chính</button></section>;
 }
 
 function LoginPage({ onAuthenticated }) {
@@ -731,7 +980,6 @@ const similarOnlyButtonStyle = (active, disabled) => ({
 });
 const accountSummaryStyle = { marginTop: 14, paddingTop: 12, borderTop: "1px solid #2a3d4c", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, color: "#8da0ac", fontSize: 10 };
 const darkIconButtonStyle = { border: "1px solid #2a3d4c", borderRadius: 6, padding: 7, display: "grid", placeItems: "center", background: "#0f1a22", color: "white", cursor: "pointer" };
-const manageAccountsButtonStyle = { marginTop: 8, width: "100%", border: "1px solid #2a3d4c", borderRadius: 6, padding: "8px 9px", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, background: "#193441", color: "#8FE0D4", cursor: "pointer", fontSize: 11, fontWeight: 700 };
 const sidebarBackdropStyle = { position: "fixed", inset: 0, zIndex: 15, display: "flex", background: "rgba(5, 15, 22, .38)" };
 const sidebarDrawerStyle = { width: "min(340px, 92vw)", height: "100%", flexShrink: 0, background: C.navy, color: "white", display: "flex", flexDirection: "column", boxShadow: "12px 0 36px rgba(5, 15, 22, .28)" };
 const dashboardButtonStyle = { display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 10px", border: `1px solid ${C.navySoft}`, borderRadius: 7, background: C.navy, color: "white", fontSize: 12, fontWeight: 700, cursor: "pointer" };
@@ -745,8 +993,12 @@ const utilityContentStyle = { width: "min(1120px, calc(100% - 36px))", margin: "
 const homeEyebrowStyle = { display: "inline-block", padding: "5px 9px", borderRadius: 999, background: C.tealSoft, color: "#0B6C62", fontSize: 10, fontWeight: 800, letterSpacing: .8, textTransform: "uppercase" };
 const utilityGridStyle = { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))", gap: 18, marginTop: 34 };
 const primaryUtilityCardStyle = { minHeight: 270, padding: 24, textAlign: "left", border: `1px solid ${C.queryBorder || "#B9D8EF"}`, borderRadius: 14, background: "linear-gradient(150deg, #FFFFFF 0%, #EDF6FF 100%)", boxShadow: "0 16px 40px rgba(37,99,166,.12)", fontFamily: "inherit", cursor: "pointer" };
+const llmUtilityCardStyle = { ...primaryUtilityCardStyle, border: "1px solid #D9C6EE", background: "linear-gradient(150deg, #FFFFFF 0%, #F5EEFC 100%)", boxShadow: "0 16px 40px rgba(101,66,138,.11)" };
+const adminUtilityCardStyle = { ...primaryUtilityCardStyle, border: "1px solid #B9DED7", background: "linear-gradient(150deg, #FFFFFF 0%, #EFF9F6 100%)", boxShadow: "0 12px 32px rgba(20,107,96,.09)" };
 const futureUtilityCardStyle = { minHeight: 270, boxSizing: "border-box", padding: 24, border: `1px dashed ${C.border}`, borderRadius: 14, background: "rgba(255,255,255,.62)", opacity: .72 };
 const primaryUtilityIconStyle = { width: 48, height: 48, borderRadius: 12, display: "grid", placeItems: "center", background: C.navy, color: "#8FE0D4" };
+const llmUtilityIconStyle = { ...primaryUtilityIconStyle, background: "#3E2D56", color: "#D9C6EE" };
+const adminUtilityIconStyle = { ...primaryUtilityIconStyle, background: "#146B60", color: "#DFF3EF" };
 const futureUtilityIconStyle = { width: 48, height: 48, borderRadius: 12, display: "grid", placeItems: "center", background: "#EDF0F1", color: C.inkFaint };
 const openUtilityStyle = { display: "flex", alignItems: "center", gap: 4, marginTop: 24, color: C.queryAccent || "#2563A6", fontSize: 12, fontWeight: 800 };
 const loginPageStyle = { minHeight: "100vh", display: "grid", placeItems: "center", padding: 20, background: "linear-gradient(135deg, #0b1720, #16313d)", color: C.ink, fontFamily: "'Inter', sans-serif" };
@@ -759,3 +1011,21 @@ const modalBackdropStyle = { position: "fixed", inset: 0, zIndex: 20, display: "
 const accountModalStyle = { width: "min(850px, 100%)", maxHeight: "85vh", overflow: "auto", boxSizing: "border-box", padding: 24, borderRadius: 12, background: "white", boxShadow: "0 24px 80px rgba(0,0,0,.35)" };
 const closeButtonStyle = { border: `1px solid ${C.border}`, borderRadius: 7, padding: 7, background: "white", color: C.inkMuted, display: "grid", placeItems: "center", cursor: "pointer" };
 const createButtonStyle = { border: 0, borderRadius: 7, padding: "9px 12px", background: C.teal, color: "white", fontWeight: 700, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, cursor: "pointer" };
+const llmPageStyle = { minHeight: "100vh", display: "flex", flexDirection: "column", background: "#F4F3F7", color: C.ink, fontFamily: "'Inter', sans-serif" };
+const llmHeaderStyle = { minHeight: 68, boxSizing: "border-box", padding: "11px 18px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12, background: "white", borderBottom: `1px solid ${C.border}` };
+const llmHeaderIconStyle = { width: 38, height: 38, display: "grid", placeItems: "center", borderRadius: 10, background: "#3E2D56", color: "#D9C6EE" };
+const llmToolbarStyle = { minHeight: 64, boxSizing: "border-box", padding: "10px 18px", display: "flex", alignItems: "end", gap: 14, flexWrap: "wrap", background: "#FBFAFC", borderBottom: `1px solid ${C.border}` };
+const llmWorkspaceStyle = { minHeight: 0, flex: 1, display: "grid", gridTemplateColumns: "minmax(230px, 290px) minmax(0, 1fr)" };
+const llmRankingStyle = { minHeight: 0, background: "white", borderRight: `1px solid ${C.border}`, display: "flex", flexDirection: "column" };
+const llmRankItemStyle = (selected) => ({ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "10px 9px", marginBottom: 4, border: `1px solid ${selected ? "#BFA5DD" : "transparent"}`, borderRadius: 7, background: selected ? "#F5EEFC" : "transparent", color: C.ink, textAlign: "left", fontFamily: "inherit", cursor: "pointer" });
+const llmRankNumberStyle = { width: 28, color: "#7652A8", fontSize: 11, fontWeight: 800 };
+const reviewedDotStyle = { width: 8, height: 8, borderRadius: "50%", background: C.teal, flexShrink: 0 };
+const llmDetailStyle = { minWidth: 0, overflowY: "auto", padding: 16, display: "grid", gap: 14, alignContent: "start" };
+const llmSummaryGridStyle = { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 12 };
+const llmContextGridStyle = { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(330px, 1fr))", gap: 12 };
+const clinicalContextTextStyle = { maxHeight: 260, overflowY: "auto", padding: 12, whiteSpace: "pre-wrap", fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: 11, lineHeight: 1.55 };
+const llmExplanationGridStyle = { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 12 };
+const llmReviewStyle = { display: "grid", gap: 12, padding: 15, borderRadius: 10, border: "1px solid #D9C6EE", background: "white", boxShadow: "0 8px 28px rgba(62,45,86,.07)" };
+const llmReviewGridStyle = { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: 10 };
+const llmEmptyStyle = { margin: "50px auto", width: "min(560px, calc(100% - 36px))", boxSizing: "border-box", padding: 28, display: "grid", justifyItems: "center", gap: 12, textAlign: "center", borderRadius: 12, border: `1px dashed ${C.border}`, background: "white", color: C.inkMuted, fontSize: 12 };
+const llmErrorStyle = { position: "fixed", right: 18, bottom: 18, zIndex: 30, maxWidth: 480, padding: "10px 12px", borderRadius: 8, background: C.redSoft, border: "1px solid #E5B7B2", color: C.red, fontSize: 12, boxShadow: "0 8px 28px rgba(0,0,0,.12)" };

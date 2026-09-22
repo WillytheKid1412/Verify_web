@@ -4,6 +4,7 @@ import patientsRouter from "./routes/patients.js";
 import comparisonRouter from "./routes/comparison.js";
 import imagingRouter from "./routes/imaging.js";
 import authRouter from "./routes/auth.js";
+import llmRetrievalRouter from "./routes/llmRetrieval.js";
 import { initializeAdmin } from "./data/auth.js";
 import { requireAuth } from "./middleware/auth.js";
 import path from "path";
@@ -24,6 +25,7 @@ app.use("/api/auth", authRouter);
 app.use("/api", requireAuth);
 app.use("/api/patients", patientsRouter);
 app.use("/api/comparison", comparisonRouter);
+app.use("/api/llm-retrieval", llmRetrievalRouter);
 app.use("/api/imaging", imagingRouter);
 
 app.use((error, req, res, next) => {

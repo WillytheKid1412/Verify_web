@@ -12,6 +12,7 @@ services:
       - QUERY_PATIENT_ID=24179852
       - SAMPLE_DATA_DIR=/app/sample_data
       - TOPK_FILE=/app/retrieval/top20_related_patients.csv
+      - LLM_RETRIEVAL_ROOT=${LLM_RETRIEVAL_ROOT:-}
       - ADMIN_USERNAME=${ADMIN_USERNAME:?Hãy đặt ADMIN_USERNAME trong file .env}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:?Hãy đặt ADMIN_PASSWORD trong file .env}
     volumes:
@@ -20,6 +21,8 @@ services:
       - ./backend/src/data/retrieval.json:/app/src/data/retrieval.json:ro
       - ${TOPK_HOST_FILE:-/mnt/disk4/similar_cases_retrieval/data/experiments/patient_fusion/top20_attention_pool_all_patients_v1/top20_related_patients.csv}:/app/retrieval/top20_related_patients.csv:ro
       - ./sample_data:/app/sample_data:ro
+      # Khi dùng tiện ích LLM, mount dữ liệu bằng docker-compose.override.yml;
+      # xem mục "Xác minh retrieval LLM" trong README.
     restart: unless-stopped
 
   frontend:

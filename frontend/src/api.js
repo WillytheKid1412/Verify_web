@@ -137,3 +137,42 @@ export async function submitComparisonVerification(queryPatientId, id, { criteri
   if (!res.ok) throw new Error(await errorMessage(res, "Không lưu được kết quả xác minh"));
   return res.json();
 }
+
+export async function fetchLlmRetrievalCalls() {
+  const res = await apiFetch(`${API_URL}/llm-retrieval`);
+  if (!res.ok) throw new Error(await errorMessage(res, "Không tải được danh sách kết quả LLM"));
+  return res.json();
+}
+
+export async function fetchLlmRetrievalCall(requestId) {
+  const res = await apiFetch(`${API_URL}/llm-retrieval/${encodeURIComponent(requestId)}`);
+  if (!res.ok) throw new Error(await errorMessage(res, "Không tải được kết quả LLM"));
+  return res.json();
+}
+
+export async function submitLlmRetrievalReview(requestId, patientId, payload) {
+  const res = await apiFetch(
+    `${API_URL}/llm-retrieval/${encodeURIComponent(requestId)}/candidates/${encodeURIComponent(patientId)}/verify`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+  );
+  if (!res.ok) throw new Error(await errorMessage(res, "Không lưu được đánh giá LLM"));
+  return res.json();
+}
+
+export async function downloadLlmRetrievalExport(format) {
+  const res = await apiFetch(`${API_URL}/llm-retrieval/export?format=${format}`);
+  if (!res.ok) throw new Error(await errorMessage(res, "Không tải được file đánh giá LLM"));
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = `llm-retrieval-verifications.${format}`;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+}
