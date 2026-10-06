@@ -5,7 +5,7 @@ import comparisonRouter from "./routes/comparison.js";
 import imagingRouter from "./routes/imaging.js";
 import authRouter from "./routes/auth.js";
 import llmRetrievalRouter from "./routes/llmRetrieval.js";
-import { initializeAdmin } from "./data/auth.js";
+import { initializeAuth } from "./data/auth.js";
 import { requireAuth } from "./middleware/auth.js";
 import path from "path";
 
@@ -14,7 +14,7 @@ const PORT = process.env.PORT || 4000;
 
 app.use(cors());
 app.use(express.json());
-initializeAdmin();
+await initializeAuth();
 const sampleDataDir = process.env.SAMPLE_DATA_DIR || path.resolve(process.cwd(), "../sample_data");
 // Tên thư mục export preview có timestamp; API giữ một URL ổn định cho frontend.
 app.use("/sample/previews", requireAuth, express.static(path.join(sampleDataDir, "sample_previews_24179852_20260829_152459")));

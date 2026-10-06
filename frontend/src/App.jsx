@@ -258,7 +258,7 @@ function VerifyApp({ user, onLogout, onBackHome }) {
     setExporting(format);
     setError("");
     try {
-      await downloadComparisonExport(format, session.query.id);
+      await downloadComparisonExport(format);
     } catch (requestError) {
       setError(requestError.message);
     } finally {

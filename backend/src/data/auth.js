@@ -1,32 +1,12 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { query, waitForDatabase } from "./database.js";
 
 const DATA_DIR = process.env.DATA_DIR || path.resolve(process.cwd(), "data");
-const USERS_FILE = path.join(DATA_DIR, "users.json");
+const LEGACY_USERS_FILE = process.env.LEGACY_USERS_FILE || path.join(DATA_DIR, "users.json");
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 const sessions = new Map();
-
-function ensureDataDir() {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-}
-
-function readUsers() {
-  ensureDataDir();
-  try {
-    const parsed = JSON.parse(fs.readFileSync(USERS_FILE, "utf8"));
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
-
-function writeUsers(users) {
-  ensureDataDir();
-  const temporaryFile = `${USERS_FILE}.${process.pid}.tmp`;
-  fs.writeFileSync(temporaryFile, JSON.stringify(users, null, 2), { encoding: "utf8", mode: 0o600 });
-  fs.renameSync(temporaryFile, USERS_FILE);
-}
 
 function normalizeUsername(value) {
   return String(value || "").trim().toLocaleLowerCase("vi");
@@ -38,34 +18,104 @@ function passwordHash(password, salt = crypto.randomBytes(16).toString("hex")) {
 }
 
 function publicUser(user) {
-  return { username: user.username, role: user.role, created_at: user.created_at };
+  return {
+    username: user.username,
+    role: user.role,
+    created_at: user.created_at instanceof Date
+      ? user.created_at.toISOString()
+      : user.created_at,
+  };
 }
 
-export function initializeAdmin() {
-  const users = readUsers();
-  if (users.length) return;
+function readLegacyUsers() {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(LEGACY_USERS_FILE, "utf8"));
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+async function ensureUsersTable() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS users (
+      id BIGSERIAL PRIMARY KEY,
+      username VARCHAR(50) UNIQUE NOT NULL,
+      role VARCHAR(20) NOT NULL CHECK (role IN ('admin', 'reviewer')),
+      password_salt TEXT NOT NULL,
+      password_hash TEXT NOT NULL,
+      is_active BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      last_login_at TIMESTAMPTZ
+    )
+  `);
+}
+
+async function importLegacyUsers() {
+  let imported = 0;
+  for (const user of readLegacyUsers()) {
+    const username = normalizeUsername(user.username);
+    if (
+      !username
+      || !["admin", "reviewer"].includes(user.role)
+      || !user.password_salt
+      || !user.password_hash
+    ) continue;
+    const result = await query(`
+      INSERT INTO users (
+        username, role, password_salt, password_hash, created_at
+      ) VALUES ($1, $2, $3, $4, COALESCE($5::timestamptz, NOW()))
+      ON CONFLICT (username) DO NOTHING
+    `, [
+      username,
+      user.role,
+      String(user.password_salt),
+      String(user.password_hash),
+      user.created_at || null,
+    ]);
+    imported += result.rowCount;
+  }
+  if (imported) {
+    console.log(`Đã chuyển ${imported} tài khoản từ users.json sang PostgreSQL.`);
+  }
+}
+
+async function initializeFirstAdmin() {
+  const countResult = await query("SELECT COUNT(*)::integer AS count FROM users");
+  if (countResult.rows[0].count > 0) return;
   const username = normalizeUsername(process.env.ADMIN_USERNAME);
   const password = String(process.env.ADMIN_PASSWORD || "");
   if (!username || password.length < 12) {
     throw new Error("Chưa có tài khoản. Hãy cấu hình ADMIN_USERNAME và ADMIN_PASSWORD (ít nhất 12 ký tự).");
   }
   const passwordData = passwordHash(password);
-  writeUsers([{
-    username,
-    role: "admin",
-    password_salt: passwordData.salt,
-    password_hash: passwordData.hash,
-    created_at: new Date().toISOString(),
-  }]);
-  console.log(`Đã khởi tạo tài khoản quản trị: ${username}`);
+  await query(`
+    INSERT INTO users (username, role, password_salt, password_hash)
+    VALUES ($1, 'admin', $2, $3)
+    ON CONFLICT (username) DO NOTHING
+  `, [username, passwordData.salt, passwordData.hash]);
+  console.log(`Đã khởi tạo tài khoản quản trị trong PostgreSQL: ${username}`);
 }
 
-export function authenticate(username, password) {
-  const user = readUsers().find((item) => item.username === normalizeUsername(username));
+export async function initializeAuth() {
+  await waitForDatabase();
+  await ensureUsersTable();
+  await importLegacyUsers();
+  await initializeFirstAdmin();
+}
+
+export async function authenticate(username, password) {
+  const result = await query(`
+    SELECT username, role, password_salt, password_hash, created_at
+    FROM users
+    WHERE username = $1 AND is_active = TRUE
+  `, [normalizeUsername(username)]);
+  const user = result.rows[0];
   if (!user) return null;
   const candidate = Buffer.from(passwordHash(password, user.password_salt).hash, "hex");
   const expected = Buffer.from(user.password_hash, "hex");
   if (candidate.length !== expected.length || !crypto.timingSafeEqual(candidate, expected)) return null;
+  await query("UPDATE users SET last_login_at = NOW() WHERE username = $1", [user.username]);
   return publicUser(user);
 }
 
@@ -89,11 +139,16 @@ export function deleteSession(token) {
   sessions.delete(token);
 }
 
-export function listUsers() {
-  return readUsers().map(publicUser).sort((left, right) => left.username.localeCompare(right.username, "vi"));
+export async function listUsers() {
+  const result = await query(`
+    SELECT username, role, created_at
+    FROM users
+    ORDER BY username COLLATE "C"
+  `);
+  return result.rows.map(publicUser);
 }
 
-export function createUser({ username, password, role = "reviewer" }) {
+export async function createUser({ username, password, role = "reviewer" }) {
   const normalized = normalizeUsername(username);
   if (!/^[\p{L}\p{N}._-]{3,50}$/u.test(normalized)) {
     const error = new Error("Tên đăng nhập phải dài 3–50 ký tự và chỉ gồm chữ, số, dấu chấm, gạch dưới hoặc gạch ngang.");
@@ -110,20 +165,20 @@ export function createUser({ username, password, role = "reviewer" }) {
     error.status = 400;
     throw error;
   }
-  const users = readUsers();
-  if (users.some((item) => item.username === normalized)) {
-    const error = new Error("Tên đăng nhập đã tồn tại.");
-    error.status = 409;
+  const passwordData = passwordHash(password);
+  try {
+    const result = await query(`
+      INSERT INTO users (username, role, password_salt, password_hash)
+      VALUES ($1, $2, $3, $4)
+      RETURNING username, role, created_at
+    `, [normalized, role, passwordData.salt, passwordData.hash]);
+    return publicUser(result.rows[0]);
+  } catch (error) {
+    if (error.code === "23505") {
+      const conflict = new Error("Tên đăng nhập đã tồn tại.");
+      conflict.status = 409;
+      throw conflict;
+    }
     throw error;
   }
-  const passwordData = passwordHash(password);
-  const user = {
-    username: normalized,
-    role,
-    password_salt: passwordData.salt,
-    password_hash: passwordData.hash,
-    created_at: new Date().toISOString(),
-  };
-  writeUsers([...users, user]);
-  return publicUser(user);
 }

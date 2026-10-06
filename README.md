@@ -123,16 +123,49 @@ Mỗi bệnh nhân được đọc từ thư mục dữ liệu raw, theo mẫu t
     └── MRI/<study>/<series>/meta.json + raw.npy
 ```
 
-- Khi phát triển UI, dùng `sample_data` và các PNG preview đi kèm.
-- Khi triển khai dữ liệu thật, backend dùng path `/mnt/disk4/namtn/similar_case_retrieval/working/our_method/data/raw` qua Docker volume chỉ đọc.
+- Dữ liệu dành cho web được dựng chọn lọc vào `app/data/raw`; Docker mount
+  thư mục này chỉ đọc tại `/app/data/raw`.
 - Dữ liệu verification được lưu tách biệt với dữ liệu raw.
 - Endpoint ảnh chỉ trả về một lát đã window/resize; trình duyệt không nhận file `raw.npy`.
+
+### Dựng raw từ ZIP cho đúng danh sách retrieval
+
+Không giải nén toàn bộ kho ảnh. Script dưới đây đọc 10 query trong
+`backend/src/data/retrieval.json`, lấy các candidate rank 1–20 từ Top-20 CSV,
+tra ZIP DICOM bằng `zip_index_with_dicom.csv`, rồi nối EHR/lab theo
+`SoVaoVien` và `SoBenhAn` giống `creating_data.py`:
+
+```bash
+# Kiểm tra phạm vi và dung lượng, chưa tạo file:
+bash scripts/prepare_retrieval_raw.sh --dry-run
+
+# Dựng đúng các patient cần dùng vào app/data/raw:
+bash scripts/prepare_retrieval_raw.sh
+```
+
+Đầu ra có cấu trúc:
+
+```text
+app/data/raw/<patient_id>/<SoBenhAn>/
+├── EHR/text.json
+├── lab_result/lab.json
+├── CT/<study>/<series>/meta.json + raw.npy
+├── MRI/<study>/<series>/meta.json + raw.npy
+└── XQ/<study>/<series>/meta.json + raw.npy
+```
+
+Có thể đổi phạm vi bằng `TOP_K=5`, đổi Python bằng `PYTHON_BIN=...`, hoặc
+override các biến `ZIP_INDEX_CSV`, `EHR_XLSX`, `TOPK_FILE`, `OUTPUT_ROOT`.
+Script hiện cần `numpy`, `pandas`, `pydicom`, `openpyxl`; ảnh DICOM nén có thể
+cần thêm decoder tương ứng. Chạy lại một patient bằng tùy chọn
+`--patient-id <ID>` nếu cần kiểm tra riêng.
 
 ## Cấu trúc dự án
 
 ```
 patient-verify-app/
 ├── docker-compose.yml
+├── app/data/raw/ # Dữ liệu được dựng chọn lọc, không commit vào Git
 ├── sample_data/ # Ví dụ cấu trúc dữ liệu và ảnh preview của một bệnh nhân
 ├── backend/     # Express API, lớp đọc dữ liệu và lưu kết quả verification
 └── frontend/    # React UI hai panel đối chiếu
@@ -142,16 +175,19 @@ patient-verify-app/
 
 ```bash
 cp .env.example .env
-# Đổi ADMIN_PASSWORD trong .env trước khi chạy.
+# Đổi ADMIN_PASSWORD và POSTGRES_PASSWORD trong .env trước khi chạy.
 docker compose up --build
 ```
 
 - Frontend: http://localhost:5174
 - Backend API: http://localhost:4001/api (hoặc cùng-origin `/api` qua frontend tại http://localhost:5174)
+- Backend đọc EHR/lab/ảnh từ `/app/data/raw`, được bind từ `./app/data/raw`.
 - 10 query được chọn trong `backend/src/data/retrieval.json`; Top-20 và điểm retrieval của từng query đọc từ CSV production.
-- Tài khoản admin đầu tiên lấy từ `ADMIN_USERNAME` và `ADMIN_PASSWORD` trong
-  `.env`; mật khẩu phải có ít nhất 12 ký tự. Các tài khoản tạo sau đó được lưu
-  dạng hash trong volume `backend_data`.
+- Tài khoản được lưu dạng hash `scrypt` trong PostgreSQL, tại volume
+  `postgres_data`. Admin đầu tiên lấy từ `ADMIN_USERNAME` và `ADMIN_PASSWORD`
+  khi database chưa có tài khoản; mật khẩu phải có ít nhất 12 ký tự.
+- Khi nâng cấp từ phiên bản cũ, backend tự nhập các tài khoản trong
+  `/app/data/users.json` vào PostgreSQL và giữ nguyên file cũ làm dự phòng.
 - Sau khi đăng nhập, người dùng vào cổng tiện ích trước rồi chọn **Xác minh
   bệnh nhân**. Có thể quay lại trang chính mà không cần đăng nhập lại.
 - Trang chính cũng có tiện ích **Xác minh retrieval LLM**. Khu vực **Quản lý
@@ -161,7 +197,9 @@ docker compose up --build
   Có thể override host path bằng biến `TOPK_HOST_FILE`.
 
 Dừng: `docker compose down`
-Xóa cả dữ liệu đã lưu (verifications): `docker compose down -v`
+
+Không dùng `docker compose down -v` trên production: lệnh đó xóa cả volume
+PostgreSQL chứa tài khoản. Nên backup định kỳ bằng `pg_dump`.
 
 ## Chạy không dùng Docker (phát triển local)
 
@@ -171,6 +209,11 @@ cd backend
 npm install
 export ADMIN_USERNAME=admin
 export ADMIN_PASSWORD='thay-bang-mat-khau-manh-it-nhat-12-ky-tu'
+export PGHOST=127.0.0.1
+export PGPORT=5432
+export PGDATABASE=patient_verify
+export PGUSER=patient_verify
+export PGPASSWORD='mat-khau-postgres'
 npm run dev      # http://localhost:4000 (hoặc PORT=4001 npm run dev nếu port 4000 đang bận)
 ```
 
@@ -240,6 +283,9 @@ Payload mới của endpoint đối chiếu gồm `criteria_scores`,
 
 - Sửa mảng `query_patient_ids` trong `backend/src/data/retrieval.json`. Mỗi ID phải có trong Top-K CSV và có raw data; web sẽ hiển thị đúng các query này theo thứ tự trong JSON. Với Docker đang chạy, chỉ cần lưu file và refresh web để nạp lại danh sách.
 - Mỗi kết quả được bác sĩ chấm 9 tiêu chí và một điểm tương tự chung từ 1 đến 5.
-- Chỉ admin nhìn thấy và sử dụng được hai nút **CSV** và **JSON**. File tải về
-  gồm rank, retrieval score, toàn bộ điểm đánh giá, ghi chú, người review và thời điểm.
+- Chỉ admin nhìn thấy và sử dụng được hai nút **CSV** và **JSON**. Mỗi file tải
+  về luôn gồm toàn bộ candidate của tất cả query trong `retrieval.json`, không
+  phụ thuộc query đang được mở. File gồm rank, retrieval score, toàn bộ điểm
+  đánh giá, ghi chú, người review và thời điểm; cặp chưa review vẫn có một dòng
+  với các cột đánh giá để trống.
 - Chỉ admin có quyền tạo thêm tài khoản `reviewer` hoặc `admin`.

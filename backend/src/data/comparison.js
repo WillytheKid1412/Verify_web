@@ -362,12 +362,22 @@ export function saveComparisonDecision(queryPatientId, similarPatientId, payload
   };
 }
 
-export function getComparisonExport(queryPatientId) {
-  const { query, candidates } = loadContext(queryPatientId);
-  return candidates.map((candidate) => buildComparisonExportRow(
-    query.id,
+export function getComparisonExport() {
+  const topk = readTopkIndex();
+  if (topk) {
+    return topk.queries.flatMap(({ patient_id: queryId }) => (
+      (topk.byQuery.get(queryId) || []).map((candidate) => buildComparisonExportRow(
+        queryId,
+        candidate,
+        getVerification(`${queryId}:${candidate.patient_id}`) || {},
+      ))
+    ));
+  }
+  const fallback = readStaticRetrieval();
+  return fallback.candidates.map((candidate) => buildComparisonExportRow(
+    fallback.patientId,
     candidate,
-    getVerification(`${query.id}:${candidate.patient_id}`) || {},
+    getVerification(`${fallback.patientId}:${candidate.patient_id}`) || {},
   ));
 }
 

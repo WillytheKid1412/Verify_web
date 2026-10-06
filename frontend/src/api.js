@@ -73,14 +73,14 @@ export async function createAccount(payload) {
   return (await res.json()).user;
 }
 
-export async function downloadComparisonExport(format, queryPatientId) {
-  const res = await apiFetch(`${API_URL}/comparison/export?format=${format}&${queryParam(queryPatientId)}`);
+export async function downloadComparisonExport(format) {
+  const res = await apiFetch(`${API_URL}/comparison/export?format=${format}`);
   if (!res.ok) throw new Error(await errorMessage(res, "Không tải được file kết quả"));
   const blob = await res.blob();
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = url;
-  anchor.download = `comparison-results-${queryPatientId}.${format}`;
+  anchor.download = `comparison-results-all-queries.${format}`;
   document.body.appendChild(anchor);
   anchor.click();
   anchor.remove();

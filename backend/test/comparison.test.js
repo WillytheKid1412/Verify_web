@@ -26,6 +26,7 @@ process.env.DATA_DIR = path.join(temporary, "decisions");
 const {
   buildComparisonExportRow,
   buildSimilarityEvidence,
+  getComparisonExport,
   listComparisonQueries,
 } = await import("../src/data/comparison.js");
 
@@ -37,6 +38,15 @@ test("loads query catalogue from the Top-K CSV", () => {
     split: "test",
     candidate_count: 2,
   })));
+});
+
+test("exports candidates from every configured query", () => {
+  const rows = getComparisonExport();
+  assert.equal(rows.length, selectedQueryIds.length * 2);
+  assert.deepEqual([...new Set(rows.map((row) => row.query_patient_id))], selectedQueryIds);
+  for (const queryId of selectedQueryIds) {
+    assert.equal(rows.filter((row) => row.query_patient_id === queryId).length, 2);
+  }
 });
 
 test("builds auditable overlap evidence", () => {

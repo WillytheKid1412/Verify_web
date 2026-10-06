@@ -27,7 +27,7 @@ function csvCell(value) {
 
 router.get("/export", requireAdmin, (req, res, next) => {
   try {
-    const rows = getComparisonExport(req.query.query_patient_id);
+    const rows = getComparisonExport();
     if (req.query.format === "csv") {
       const columns = Object.keys(rows[0] || {
         query_patient_id: "", similar_patient_id: "", rank: "", similarity_score: "",
